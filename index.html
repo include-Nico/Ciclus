@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ciclus - Bike Dashboard</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet.js CSS (Mappe OpenSource) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Contenitore Mappa Full-Screen -->
+    <div id="map"></div>
+
+    <!-- Dashboard Glassmorphism -->
+    <div id="dashboard" class="glass-panel">
+        
+        <div class="speed-display">
+            <span id="currentSpeed">0.0</span>
+            <span class="unit">km/h</span>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-label">DISTANZA</span>
+                <div class="stat-value"><span id="distance">0.00</span> <span class="unit-small">km</span></div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">TEMPO</span>
+                <div class="stat-value"><span id="timer">00:00:00</span></div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">MAX VEL.</span>
+                <div class="stat-value"><span id="maxSpeed">0.0</span> <span class="unit-small">km/h</span></div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">PRECISIONE</span>
+                <div class="stat-value"><span id="accuracy">--</span> <span class="unit-small">m</span></div>
+            </div>
+        </div>
+
+        <button id="startBtn" class="glass-btn">INIZIA CORSA</button>
+    </div>
+
+    <!-- Leaflet.js JavaScript -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Logica dell'Applicazione -->
+    <script src="script.js"></script>
+
+</body>
+</html>
