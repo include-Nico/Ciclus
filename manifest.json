@@ -1,0 +1,13 @@
+{
+  "name": "Ciclus — Ciclocomputer GPS",
+  "short_name": "Ciclus",
+  "description": "Ciclocomputer GPS con tachimetro, distanza, tempo e cronologia corse.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#08090b",
+  "theme_color": "#08090b",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
