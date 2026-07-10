@@ -8,7 +8,7 @@
     <!-- Google Fonts: Inter -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&display=swap" rel="stylesheet">
     
-    <!-- Leaflet.js CSS (Mappe OpenSource) -->
+    <!-- Leaflet.js CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
     <link rel="stylesheet" href="style.css">
@@ -21,11 +21,35 @@
     <!-- Dashboard Glassmorphism -->
     <div id="dashboard" class="glass-panel">
         
-        <div class="speed-display">
-            <span id="currentSpeed">0.0</span>
-            <span class="unit">km/h</span>
+        <!-- Tachimetro Ibrido (Analogico + Digitale) -->
+        <div class="speedometer-wrapper">
+            <!-- Struttura SVG del quadrante -->
+            <svg class="speed-gauge" viewBox="0 0 200 200">
+                <!-- Anello dei Ticks (Decorativo hi-tech) -->
+                <circle cx="100" cy="100" r="85" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2" stroke-dasharray="2 10" />
+                
+                <!-- Sfondo della barra tachimetro (270 gradi) -->
+                <!-- stroke-dasharray="330 440" crea un arco preciso calcolato matematicamente -->
+                <circle cx="100" cy="100" r="70" fill="none" stroke="rgba(0, 0, 0, 0.6)" stroke-width="12" stroke-linecap="round" stroke-dasharray="330 440" transform="rotate(135 100 100)" />
+                
+                <!-- Barra del progresso della velocità (Blu Neon) -->
+                <circle id="speedProgress" cx="100" cy="100" r="70" fill="none" stroke="#007bff" stroke-width="12" stroke-linecap="round" stroke-dasharray="330 440" stroke-dashoffset="330" transform="rotate(135 100 100)" style="transition: stroke-dashoffset 0.5s ease-out;" />
+                
+                <!-- Lancetta (Rossa) e perno centrale -->
+                <g id="speedNeedle" style="transform-origin: 100px 100px; transform: rotate(-135deg); transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+                    <polygon points="97,100 103,100 100,25" fill="#ff3b30" />
+                    <circle cx="100" cy="100" r="8" fill="#121212" stroke="#ff3b30" stroke-width="3" />
+                </g>
+            </svg>
+
+            <!-- Valore Digitale sovrapposto al centro -->
+            <div class="speed-digital">
+                <span id="currentSpeed">0.0</span>
+                <span class="unit">km/h</span>
+            </div>
         </div>
 
+        <!-- Griglia Statistiche Secondarie -->
         <div class="stats-grid">
             <div class="stat-card">
                 <span class="stat-label">DISTANZA</span>
@@ -50,7 +74,6 @@
 
     <!-- Leaflet.js JavaScript -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Logica dell'Applicazione -->
     <script src="script.js"></script>
 
 </body>

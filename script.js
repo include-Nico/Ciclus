@@ -1,35 +1,30 @@
-// Variabili Globali Mappa
 let map, marker;
 let watchId = null;
 let wakeLock = null;
 let isTracking = false;
 
-// Variabili metriche
 let maxSpeed = 0;
 let totalDistance = 0; 
 let lastPosition = null;
 
-// Variabili Timer
 let startTime;
 let timerInterval;
 
-// --- 1. Inizializzazione Mappa (Leaflet Open-Source) ---
+// Riferimenti agli elementi SVG del tachimetro
+const speedGaugeProgress = document.getElementById('speedProgress');
+const speedNeedle = document.getElementById('speedNeedle');
+const DIAL_MAX_SPEED = 60; // Il tachimetro segna fino a 60 km/h prima di fermarsi a fondo scala
+
 function initMap() {
-    // Coordinate iniziali di default (Milano)
     const defaultPos = [45.4642, 9.1900];
 
-    // Crea l'oggetto mappa e rimuove i tasti + e - di default per pulizia estetica
-    map = L.map('map', {
-        zoomControl: false
-    }).setView(defaultPos, 16);
+    map = L.map('map', { zoomControl: false }).setView(defaultPos, 16);
 
-    // Carica il layer cartografico Dark Matter di CartoDB (Grintoso e scuro)
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap &copy; CARTO'
     }).addTo(map);
 
-    // Genera il marker personalizzato tramite una classe CSS
     const customIcon = L.divIcon({
         className: 'custom-gps-marker',
         html: '<div class="gps-dot"></div>',
@@ -40,10 +35,8 @@ function initMap() {
     marker = L.marker(defaultPos, { icon: customIcon }).addTo(map);
 }
 
-// Avvia l'inizializzazione appena il DOM è pronto
 document.addEventListener('DOMContentLoaded', initMap);
 
-// --- 2. Gestione Geolocation e Logica di Tracciamento ---
 const startBtn = document.getElementById('startBtn');
 
 startBtn.addEventListener('click', () => {
@@ -56,35 +49,25 @@ startBtn.addEventListener('click', () => {
 
 function startTracking() {
     if (!navigator.geolocation) {
-        alert("Il tuo dispositivo non supporta la geolocalizzazione GPS.");
+        alert("Il tuo dispositivo non supporta il GPS.");
         return;
     }
 
-    // Richiede l'attivazione del blocco spegnimento schermo
     requestWakeLock();
-
-    // Avvio Cronometro
     startTime = Date.now();
     timerInterval = setInterval(updateTimer, 1000);
 
-    const options = {
-        enableHighAccuracy: true, // Forza l'uso del GPS hardware rispetto al Wi-Fi
-        maximumAge: 0,
-        timeout: 5000
-    };
-
+    const options = { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 };
     watchId = navigator.geolocation.watchPosition(successPosition, errorPosition, options);
     
     isTracking = true;
     startBtn.innerText = "TERMINA CORSA";
-    startBtn.style.background = "rgba(231, 76, 60, 0.4)";
-    startBtn.style.borderColor = "rgba(231, 76, 60, 0.6)";
+    startBtn.style.background = "rgba(231, 76, 60, 0.3)";
+    startBtn.style.borderColor = "rgba(231, 76, 60, 0.5)";
 }
 
 function stopTracking() {
-    if (watchId) {
-        navigator.geolocation.clearWatch(watchId);
-    }
+    if (watchId) navigator.geolocation.clearWatch(watchId);
     clearInterval(timerInterval);
     releaseWakeLock();
     
@@ -93,33 +76,35 @@ function stopTracking() {
     startBtn.style.background = "rgba(255, 255, 255, 0.08)";
     startBtn.style.borderColor = "rgba(255, 255, 255, 0.15)";
     lastPosition = null; 
+    
+    // Riporta il tachimetro a 0 in modo fluido quando ti fermi
+    updateAnalogDial(0);
+    document.getElementById('currentSpeed').innerText = "0.0";
 }
 
 function successPosition(position) {
     const coords = position.coords;
     const currentLatLng = [coords.latitude, coords.longitude];
     
-    // Aggiorna posizione mappa e sposta il marker in modo fluido
     map.panTo(currentLatLng);
     marker.setLatLng(currentLatLng);
 
-    // Gestione Velocità (m/s -> km/h)
     let speedKmh = coords.speed ? (coords.speed * 3.6) : 0;
-    
-    // Filtro per prevenire sfarfallio del GPS da fermi
     if (speedKmh < 1.0) speedKmh = 0; 
 
+    // Aggiorna Numero Digitale Centrale
     document.getElementById('currentSpeed').innerText = speedKmh.toFixed(1);
     
+    // --- NUOVO: Aggiorna Quadrante Analogico ---
+    updateAnalogDial(speedKmh);
+
     if (speedKmh > maxSpeed) {
         maxSpeed = speedKmh;
         document.getElementById('maxSpeed').innerText = maxSpeed.toFixed(1);
     }
 
-    // Mostra la precisione del segnale satellitare
     document.getElementById('accuracy').innerText = coords.accuracy.toFixed(0);
 
-    // Calcolo della distanza progressiva
     if (lastPosition) {
         const dist = calculateHaversine(
             lastPosition.latitude, lastPosition.longitude,
@@ -131,11 +116,29 @@ function successPosition(position) {
     lastPosition = coords;
 }
 
+// Funzione dedicata all'aggiornamento grafico del tachimetro
+function updateAnalogDial(speedKmh) {
+    // Limitiamo la velocità visualizzata sul quadrante al massimo (60)
+    let displaySpeed = Math.min(speedKmh, DIAL_MAX_SPEED);
+    
+    // Calcoliamo la percentuale di riempimento del quadrante (da 0.0 a 1.0)
+    let speedPercentage = displaySpeed / DIAL_MAX_SPEED;
+
+    // 1. Aggiorna la barra circolare azzurra
+    // stroke-dasharray totale è 330. Iniziamo con un offset di 330 (vuoto) e andiamo a 0 (pieno).
+    let dashOffset = 330 - (330 * speedPercentage);
+    speedGaugeProgress.style.strokeDashoffset = dashOffset;
+
+    // 2. Aggiorna la rotazione della lancetta rossa
+    // La lancetta parte da -135 gradi (min) e arriva a +135 gradi (max). Escursione totale: 270 gradi.
+    let needleRotation = -135 + (270 * speedPercentage);
+    speedNeedle.style.transform = `rotate(${needleRotation}deg)`;
+}
+
 function errorPosition(err) {
     console.warn(`Errore GPS (${err.code}): ${err.message}`);
 }
 
-// --- 3. Formula di Haversine (Calcolo Distanza Geometrica) ---
 function calculateHaversine(lat1, lon1, lat2, lon2) {
     const R = 6371; 
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -148,7 +151,6 @@ function calculateHaversine(lat1, lon1, lat2, lon2) {
     return R * c;
 }
 
-// --- 4. Gestione Timer di Sessione ---
 function updateTimer() {
     const diff = Date.now() - startTime;
     const date = new Date(diff);
@@ -158,19 +160,14 @@ function updateTimer() {
     document.getElementById('timer').innerText = `${hh}:${mm}:${ss}`;
 }
 
-// --- 5. WakeLock API (Schermo Sempre Attivo) ---
 async function requestWakeLock() {
     try {
-        if ('wakeLock' in navigator) {
-            wakeLock = await navigator.wakeLock.request('screen');
-        }
+        if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
     } catch (err) {
         console.warn(`WakeLock non disponibile: ${err.message}`);
     }
 }
 
 function releaseWakeLock() {
-    if (wakeLock !== null) {
-        wakeLock.release().then(() => { wakeLock = null; });
-    }
+    if (wakeLock !== null) wakeLock.release().then(() => { wakeLock = null; });
 }

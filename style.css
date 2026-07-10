@@ -14,7 +14,6 @@ body, html {
     background-color: #121212;
 }
 
-/* Mappa a tutto schermo */
 #map {
     height: 100%;
     width: 100%;
@@ -24,28 +23,27 @@ body, html {
     z-index: 1;
 }
 
-/* Rimozione del watermark di Leaflet per pulizia UI (opzionale) */
 .leaflet-control-attribution {
     background: rgba(0,0,0,0.5) !important;
     color: rgba(255,255,255,0.5) !important;
     font-size: 8px !important;
 }
 
-/* Effetto Glassmorphism */
+/* Glassmorphism Panel */
 .glass-panel {
     position: absolute;
     bottom: 30px;
     left: 50%;
     transform: translateX(-50%);
     width: 90%;
-    max-width: 450px;
-    z-index: 1000; /* Superiore a Leaflet */
+    max-width: 400px; /* Leggermente ristretto per incorniciare meglio il quadrante */
+    z-index: 1000;
     
-    background: rgba(20, 20, 20, 0.6);
+    background: rgba(20, 20, 20, 0.65);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 28px;
+    border-radius: 32px;
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
     
     padding: 24px;
@@ -55,31 +53,59 @@ body, html {
     align-items: center;
 }
 
-/* Indicatore Velocità */
-.speed-display {
-    text-align: center;
-    margin-bottom: 24px;
+/* --- NUOVO: Stili del Tachimetro Realistico --- */
+.speedometer-wrapper {
+    position: relative;
+    width: 200px;
+    height: 200px;
+    margin: 0 auto 20px auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.speed-gauge {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* Aggiunge un lieve bagliore azzurro al quadrante */
+    filter: drop-shadow(0 0 6px rgba(0, 123, 255, 0.3)); 
+}
+
+/* Posiziona i numeri esattamente al centro, leggermente spostati in basso per fare spazio al perno */
+.speed-digital {
+    position: absolute;
+    top: 58%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
 #currentSpeed {
-    font-size: 5rem;
+    font-size: 3rem;
     font-weight: 700;
     line-height: 1;
-    text-shadow: 0 0 15px rgba(255, 255, 255, 0.2);
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
 }
 
 .unit {
-    font-size: 1.5rem;
+    font-size: 0.9rem;
     font-weight: 300;
-    color: rgba(255, 255, 255, 0.6);
-    margin-left: 5px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-top: -2px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }
+/* ------------------------------------------- */
 
 /* Griglia Statistiche */
 .stats-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 16px;
+    gap: 12px;
     width: 100%;
     margin-bottom: 24px;
 }
@@ -94,7 +120,7 @@ body, html {
 
 .stat-label {
     display: block;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     font-weight: 500;
     letter-spacing: 1px;
     color: rgba(255, 255, 255, 0.4);
@@ -107,12 +133,12 @@ body, html {
 }
 
 .unit-small {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     font-weight: 300;
     color: rgba(255, 255, 255, 0.5);
 }
 
-/* Bottone di Avvio */
+/* Bottone */
 .glass-btn {
     width: 100%;
     padding: 16px;
@@ -132,7 +158,7 @@ body, html {
     transform: scale(0.98);
 }
 
-/* Custom Marker per il GPS (Punto Blu Luminoso) */
+/* Marker Mappa Leaflet */
 .custom-gps-marker {
     display: flex;
     align-items: center;
