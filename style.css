@@ -119,6 +119,7 @@ button {
     z-index: 1;
     transform-origin: center center;
     transition: transform 0.3s linear;
+    will-change: transform; /* Ottimizzazione rendering per evitare glitch */
 }
 
 #map {
@@ -151,7 +152,6 @@ button {
     align-items: center;
     justify-content: center;
     transform-origin: 50% 50%;
-    /* Transizione rimossa per evitare lag in combinazione con la rotazione del map-container */
 }
 
 .gps-triangle {

@@ -130,12 +130,12 @@ document.addEventListener('DOMContentLoaded', () => {
    Mappa (Leaflet)
    ========================================================================== */
 function initMap() {
-    // Niguarda come punto di partenza
     const defaultPos = [45.5180, 9.1940]; 
 
     state.map = L.map('map', { 
         zoomControl: false, 
-        attributionControl: true 
+        attributionControl: true,
+        maxZoom: 22 // Consenti alla mappa di zoomare digitalmente fino a livello 22
     }).setView(defaultPos, state.mapZoom);
 
     updateMapThemeLayer();
@@ -149,6 +149,12 @@ function initMap() {
 
     state.marker = L.marker(defaultPos, { icon: customIcon }).addTo(state.map);
     renderTappeMarkers();
+
+    // Forza il ricalcolo delle dimensioni della mappa una volta renderizzata
+    // Questo previene le strisce nere se il container gigante non è letto bene all'avvio.
+    setTimeout(() => {
+        if(state.map) state.map.invalidateSize();
+    }, 200);
 }
 
 function updateMapThemeLayer() {
@@ -161,20 +167,17 @@ function updateMapThemeLayer() {
     const activeUrl = state.mapTheme === 'dark' ? darkUrl : lightUrl;
 
     state.tileLayer = L.tileLayer(activeUrl, {
-        maxZoom: 20,
+        maxZoom: 22,       // Fino a dove l'utente può arrivare 
+        maxNativeZoom: 19, // L'ultimo set di immagini reali presenti sui server CartoDB
         attribution: '&copy; OpenStreetMap &copy; CARTO'
     }).addTo(state.map);
 }
 
-// Quando il mapContainer ruota tramite CSS, dobbiamo ruotare il marker in direzione opposta
-// affinché la sua freccia punti sempre nella direzione corretta rispetto alla mappa stessa.
 function updateMarkerHeading(headingDeg) {
     if (headingDeg === null || Number.isNaN(headingDeg)) return;
     
     if (state.mapRotate === 'on') {
         el.mapContainer.style.transform = `rotate(${-headingDeg}deg)`;
-        // Se la mappa ruota, il marker graficamente punta sempre "su" fisso per l'utente,
-        // ma siccome è ancorato alla mappa che sta girando, non serve ruotarlo CSS internamente.
         const arrow = state.marker?.getElement()?.querySelector('.gps-marker');
         if (arrow) arrow.style.transform = `rotate(0deg)`;
     } else {
@@ -188,7 +191,6 @@ function updateMarkerHeading(headingDeg) {
    Gestione Impostazioni (Theme, Rotate, Zoom)
    ========================================================================== */
 function applySettingsToUI() {
-    // Unità
     const speedUnit = state.unit === 'km' ? 'km/h' : 'mph';
     const distUnit = state.unit === 'km' ? 'km' : 'mi';
     el.speedUnitLabel.textContent = speedUnit;
@@ -197,14 +199,11 @@ function applySettingsToUI() {
     el.distUnitLabel.textContent = distUnit;
     el.unitToggle.querySelectorAll('.segmented-option').forEach(btn => btn.classList.toggle('active', btn.dataset.unit === state.unit));
     
-    // Tema
     el.mapThemeToggle.querySelectorAll('.segmented-option').forEach(btn => btn.classList.toggle('active', btn.dataset.theme === state.mapTheme));
     
-    // Rotazione
     el.mapRotateToggle.querySelectorAll('.segmented-option').forEach(btn => btn.classList.toggle('active', btn.dataset.rotate === state.mapRotate));
     if(state.mapRotate === 'off' && state.lastBearing !== null) updateMarkerHeading(state.lastBearing);
     
-    // Zoom
     el.mapZoomSlider.value = state.mapZoom;
     el.zoomLevelDisplay.textContent = state.mapZoom;
     if(state.map) state.map.setZoom(state.mapZoom);
@@ -228,7 +227,7 @@ function saveCurrentLocationAsTappa() {
         name: name,
         lat: state.lastPosition.latitude,
         lng: state.lastPosition.longitude,
-        bestTime: null // Registreremo il miglior tempo in secondi
+        bestTime: null 
     };
 
     state.tappe.push(newTappa);
@@ -267,7 +266,6 @@ function renderTappe() {
     });
 }
 
-// Marker grafici sulla mappa per visualizzare i punti salvati
 let tappeLayerGroup = null;
 function renderTappeMarkers() {
     if(!state.map) return;
@@ -289,26 +287,21 @@ function checkTappeProximity(currentLat, currentLng) {
     if (!state.tracking || state.paused || state.movingTime < 10) return;
 
     state.tappe.forEach(tappa => {
-        if (state.tappeRaggiunteCorrenti.includes(tappa.id)) return; // Già innescata in questa run
+        if (state.tappeRaggiunteCorrenti.includes(tappa.id)) return;
 
         const distKm = haversineDistanceKm(currentLat, currentLng, tappa.lat, tappa.lng);
         if (distKm <= TAPPA_PROXIMITY_RADIUS) {
-            // Tappa raggiunta!
             state.tappeRaggiunteCorrenti.push(tappa.id);
             
-            // Aggiorna Best Time
             if (!tappa.bestTime || state.movingTime < tappa.bestTime) {
                 tappa.bestTime = state.movingTime;
                 localStorage.setItem('ciclus_tappe', JSON.stringify(state.tappe));
                 renderTappe();
-                
-                // Un piccolo alert visuale o sonoro sarebbe utile qui in futuro
                 console.log(`Nuovo Record su Tappa ${tappa.name}: ${formatDuration(state.movingTime*1000)}`);
             }
         }
     });
 }
-
 
 /* ==========================================================================
    Quadrante
@@ -400,7 +393,7 @@ function startTracking() {
 
     resetRideStats();
     requestWakeLock();
-    state.tappeRaggiunteCorrenti = []; // Resetta array tappe per la nuova corsa
+    state.tappeRaggiunteCorrenti = []; 
 
     state.startTime = Date.now();
     state.timerInterval = setInterval(updateTimer, 1000);
