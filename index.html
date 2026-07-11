@@ -1,183 +1,30 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>Ciclus — Ciclocomputer GPS</title>
-<meta name="description" content="Ciclocomputer GPS con tachimetro, distanza, tempo e cronologia corse.">
-<meta name="theme-color" content="#08090b">
-
-<!-- PWA -->
-<link rel="manifest" href="manifest.json">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="icon.svg">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Ciclus">
-
-<!-- Font: Space Grotesk (UI) + JetBrains Mono (dati numerici tabellari) -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-
-<!-- Leaflet.js CSS -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-i18n="app_title">Ciclus</title>
+  <link rel="manifest" href="/manifest.json">
 </head>
 <body>
+  <main>
+    <h1 data-i18n="welcome_message">Benvenuto</h1>
+    <p data-i18n="description">Questa è la tua app offline e multilingua.</p>
+  </main>
 
-<!-- Mappa Full-Screen -->
-<div id="map"></div>
-
-<!-- Barra di stato superiore -->
-<header id="statusBar" class="status-bar">
-    <div class="status-pill" id="gpsStatus">
-        <span class="status-dot" id="gpsDot"></span>
-        <span class="status-text" id="gpsText">GPS in attesa</span>
+  <!-- Banner Player Musicale -->
+  <div id="music-banner" class="music-banner">
+    <div class="track-info">
+      <span id="track-name">Nessuna traccia</span>
     </div>
-
-    <div class="status-actions">
-        <button class="icon-btn" id="historyBtn" aria-label="Cronologia corse" title="Cronologia">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M3 12a9 9 0 1 0 3-6.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3 4v5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <button class="icon-btn" id="settingsBtn" aria-label="Impostazioni" title="Impostazioni">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 13a7.7 7.7 0 0 0 0-2l2-1.5-2-3.5-2.4.6a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.3 2.5a7.6 7.6 0 0 0-1.7 1l-2.4-.6-2 3.5L6.6 11a7.7 7.7 0 0 0 0 2l-2 1.5 2 3.5 2.4-.6a7.6 7.6 0 0 0 1.7 1L11 21h4l.3-2.5a7.6 7.6 0 0 0 1.7-1l2.4.6 2-3.5-2-1.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-        </button>
+    <div class="controls">
+      <button id="btn-prev">⏮️</button>
+      <button id="btn-play">▶️</button>
+      <button id="btn-next">⏭️</button>
     </div>
-</header>
+  </div>
 
-<!-- Pannello cronologia -->
-<aside id="historyPanel" class="sheet" aria-hidden="true">
-    <div class="sheet-handle"></div>
-    <div class="sheet-header">
-        <h2>Cronologia corse</h2>
-        <button class="icon-btn" id="closeHistoryBtn" aria-label="Chiudi">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </button>
-    </div>
-    <div id="historyList" class="history-list">
-        <p class="empty-state">Nessuna corsa salvata ancora. Le corse completate compariranno qui.</p>
-    </div>
-    <button id="clearHistoryBtn" class="text-btn danger">Cancella tutta la cronologia</button>
-</aside>
-
-<!-- Pannello impostazioni -->
-<aside id="settingsPanel" class="sheet" aria-hidden="true">
-    <div class="sheet-handle"></div>
-    <div class="sheet-header">
-        <h2>Impostazioni</h2>
-        <button class="icon-btn" id="closeSettingsBtn" aria-label="Chiudi">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </button>
-    </div>
-    <div class="setting-row">
-        <span>Unità di misura</span>
-        <div class="segmented" id="unitToggle">
-            <button class="segmented-option active" data-unit="km">km/h</button>
-            <button class="segmented-option" data-unit="mi">mph</button>
-        </div>
-    </div>
-    <div class="setting-row">
-        <span>Mantieni schermo attivo</span>
-        <div class="segmented" id="wakeLockStatus">
-            <span class="segmented-info" id="wakeLockText">automatico durante la corsa</span>
-        </div>
-    </div>
-</aside>
-
-<div class="scrim" id="scrim"></div>
-
-<!-- Riepilogo fine corsa -->
-<div id="summaryModal" class="modal" aria-hidden="true">
-    <div class="modal-card">
-        <h2>Corsa completata</h2>
-        <div class="summary-grid">
-            <div class="summary-item">
-                <span class="stat-label">Distanza</span>
-                <strong id="sumDistance">0.00 km</strong>
-            </div>
-            <div class="summary-item">
-                <span class="stat-label">Tempo</span>
-                <strong id="sumTime">00:00:00</strong>
-            </div>
-            <div class="summary-item">
-                <span class="stat-label">Vel. media</span>
-                <strong id="sumAvg">0.0 km/h</strong>
-            </div>
-            <div class="summary-item">
-                <span class="stat-label">Vel. massima</span>
-                <strong id="sumMax">0.0 km/h</strong>
-            </div>
-        </div>
-        <div class="modal-actions">
-            <button id="discardRideBtn" class="glass-btn ghost">Scarta</button>
-            <button id="saveRideBtn" class="glass-btn primary">Salva corsa</button>
-        </div>
-    </div>
-</div>
-
-<!-- Cockpit / Dashboard principale -->
-<main id="dashboard" class="glass-panel">
-
-    <div class="speedometer-wrapper">
-        <svg class="speed-gauge" id="speedGaugeSvg" viewBox="0 0 240 240">
-            <g id="tickLayer"></g>
-            <circle id="gaugeTrack" cx="120" cy="120" r="100" fill="none" class="gauge-track" />
-            <circle id="speedProgress" cx="120" cy="120" r="100" fill="none" class="gauge-progress" />
-            <g id="speedNeedle" class="needle-group">
-                <polygon points="117,120 123,120 120,32" class="needle" />
-                <circle cx="120" cy="120" r="9" class="needle-hub" />
-            </g>
-        </svg>
-
-        <div class="speed-digital">
-            <span id="currentSpeed">0.0</span>
-            <span class="unit" id="speedUnitLabel">km/h</span>
-        </div>
-
-        <div class="rec-indicator" id="recIndicator" aria-hidden="true">
-            <span class="rec-dot"></span> REC
-        </div>
-    </div>
-
-    <div class="stats-grid">
-        <div class="stat-card">
-            <span class="stat-label">Distanza</span>
-            <div class="stat-value"><span id="distance">0.00</span> <span class="unit-small" id="distUnitLabel">km</span></div>
-        </div>
-        <div class="stat-card">
-            <span class="stat-label">Tempo</span>
-            <div class="stat-value"><span id="timer">00:00:00</span></div>
-        </div>
-        <div class="stat-card">
-            <span class="stat-label">Vel. media</span>
-            <div class="stat-value"><span id="avgSpeed">0.0</span> <span class="unit-small" id="avgUnitLabel">km/h</span></div>
-        </div>
-        <div class="stat-card">
-            <span class="stat-label">Vel. massima</span>
-            <div class="stat-value"><span id="maxSpeed">0.0</span> <span class="unit-small" id="maxUnitLabel">km/h</span></div>
-        </div>
-        <div class="stat-card">
-            <span class="stat-label">Precisione</span>
-            <div class="stat-value"><span id="accuracy">--</span> <span class="unit-small">m</span></div>
-        </div>
-        <div class="stat-card">
-            <span class="stat-label">Altitudine</span>
-            <div class="stat-value"><span id="altitude">--</span> <span class="unit-small">m</span></div>
-        </div>
-    </div>
-
-    <div class="control-row">
-        <button id="startBtn" class="glass-btn primary">Inizia corsa</button>
-        <button id="pauseBtn" class="glass-btn ghost hidden">Pausa</button>
-        <button id="stopBtn" class="glass-btn danger hidden">Termina</button>
-    </div>
-</main>
-
-<!-- Leaflet.js -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="script.js"></script>
-
+  <!-- Vite inietta automaticamente i moduli da qui -->
+  <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
