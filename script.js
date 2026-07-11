@@ -25,6 +25,7 @@ const state = {
 
     lastPosition: null,     // { latitude, longitude, timestamp }
     lastAcceptedSpeed: 0,
+    lastBearing: null,      // direzione (0-360°) da GPS o calcolata tra due fix
 
     startTime: null,
     pauseStartedAt: null,
@@ -127,7 +128,7 @@ function initMap() {
 
     const customIcon = L.divIcon({
         className: 'custom-gps-marker',
-        html: '<div class="gps-dot-wrapper"><div class="gps-heading-cone" style="opacity:0"></div><div class="gps-dot"></div></div>',
+        html: '<div class="gps-marker-halo"></div><div class="gps-marker"><div class="gps-triangle"></div></div>',
         iconSize: [34, 34],
         iconAnchor: [17, 17]
     });
@@ -136,15 +137,9 @@ function initMap() {
 }
 
 function updateMarkerHeading(headingDeg) {
-    const wrapper = state.marker?.getElement()?.querySelector('.gps-dot-wrapper');
-    const cone = state.marker?.getElement()?.querySelector('.gps-heading-cone');
-    if (!wrapper || !cone) return;
-    if (headingDeg === null || Number.isNaN(headingDeg)) {
-        cone.style.opacity = '0';
-        return;
-    }
-    cone.style.opacity = '1';
-    wrapper.style.transform = `rotate(${headingDeg}deg)`;
+    const arrow = state.marker?.getElement()?.querySelector('.gps-marker');
+    if (!arrow || headingDeg === null || Number.isNaN(headingDeg)) return;
+    arrow.style.transform = `rotate(${headingDeg}deg)`;
 }
 
 /* ==========================================================================
@@ -319,6 +314,7 @@ function resetRideStats() {
     state.movingTime = 0;
     state.lastPosition = null;
     state.lastAcceptedSpeed = 0;
+    state.lastBearing = null;
     refreshStatDisplays();
     el.timer.textContent = '00:00:00';
 }
@@ -327,10 +323,28 @@ function onPosition(position) {
     const coords = position.coords;
     const currentLatLng = [coords.latitude, coords.longitude];
 
+    // Direzione: preferiamo la bussola del dispositivo; se assente, la
+    // deriviamo dallo spostamento rispetto al fix precedente (richiede un
+    // minimo di moto reale per non "sfarfallare" per rumore GPS da fermi).
+    let heading = typeof coords.heading === 'number' && !Number.isNaN(coords.heading) ? coords.heading : null;
+    if (heading === null && state.lastPosition) {
+        const movedKm = haversineDistanceKm(
+            state.lastPosition.latitude, state.lastPosition.longitude,
+            coords.latitude, coords.longitude
+        );
+        if (movedKm > 0.003) {
+            heading = computeBearingDeg(
+                state.lastPosition.latitude, state.lastPosition.longitude,
+                coords.latitude, coords.longitude
+            );
+        }
+    }
+    if (heading !== null) state.lastBearing = heading;
+
     if (state.map && state.marker) {
         state.map.panTo(currentLatLng, { animate: true, duration: 0.5 });
         state.marker.setLatLng(currentLatLng);
-        updateMarkerHeading(typeof coords.heading === 'number' ? coords.heading : null);
+        updateMarkerHeading(state.lastBearing);
     }
 
     updateGpsQuality(coords.accuracy);
@@ -418,6 +432,17 @@ function haversineDistanceKm(lat1, lon1, lat2, lon2) {
     return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
+// Direzione (0°=Nord, in senso orario) tra due punti — usata come fallback
+// per orientare il triangolo sulla mappa quando coords.heading non è
+// disponibile (comune quando il dispositivo è quasi fermo o non ha bussola).
+function computeBearingDeg(lat1, lon1, lat2, lon2) {
+    const φ1 = (lat1 * Math.PI) / 180, φ2 = (lat2 * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
 /* ==========================================================================
    Timer (esclude il tempo trascorso in pausa)
    ========================================================================== */
@@ -440,22 +465,28 @@ function formatDuration(ms) {
 /* ==========================================================================
    Controlli — Inizia / Pausa / Termina
    ========================================================================== */
+const ICON_PAUSE = '<rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/>';
+const ICON_PLAY = '<path d="M7 5.5v13l11-6.5-11-6.5Z" fill="currentColor"/>';
+
 function setControlsMode(mode) {
     if (mode === 'idle') {
         el.startBtn.classList.remove('hidden');
         el.pauseBtn.classList.add('hidden');
         el.stopBtn.classList.add('hidden');
-        el.startBtn.textContent = 'Inizia corsa';
     } else if (mode === 'tracking') {
         el.startBtn.classList.add('hidden');
         el.pauseBtn.classList.remove('hidden');
         el.stopBtn.classList.remove('hidden');
-        el.pauseBtn.textContent = 'Pausa';
+        el.pauseBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none">${ICON_PAUSE}</svg>`;
+        el.pauseBtn.setAttribute('aria-label', 'Pausa');
+        el.pauseBtn.setAttribute('title', 'Pausa');
     } else if (mode === 'paused') {
         el.startBtn.classList.add('hidden');
         el.pauseBtn.classList.remove('hidden');
         el.stopBtn.classList.remove('hidden');
-        el.pauseBtn.textContent = 'Riprendi';
+        el.pauseBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none">${ICON_PLAY}</svg>`;
+        el.pauseBtn.setAttribute('aria-label', 'Riprendi');
+        el.pauseBtn.setAttribute('title', 'Riprendi');
     }
 }
 
