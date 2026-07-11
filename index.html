@@ -38,6 +38,9 @@
     </div>
 
     <div class="status-actions">
+        <button class="icon-btn" id="musicToggleBtn" aria-label="Musica" title="Musica">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M9 18V5l11-2v13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3" stroke="currentColor" stroke-width="1.7"/><circle cx="17" cy="16" r="3" stroke="currentColor" stroke-width="1.7"/></svg>
+        </button>
         <button class="icon-btn" id="historyBtn" aria-label="Cronologia corse" title="Cronologia">
             <svg viewBox="0 0 24 24" fill="none"><path d="M3 12a9 9 0 1 0 3-6.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3 4v5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -46,6 +49,32 @@
         </button>
     </div>
 </header>
+
+<!-- Banner musicale — riproduce brani/radio scelti dall'utente, con controlli
+     reali sulla lock screen tramite la Media Session API -->
+<section id="musicBanner" class="music-banner">
+    <button class="music-btn" id="musicPrevBtn" aria-label="Brano precedente" title="Precedente">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 5v14M20 6 9 12l11 6V6Z" fill="currentColor"/></svg>
+    </button>
+
+    <button class="music-info" id="musicInfoBtn" aria-label="Apri playlist">
+        <svg class="music-note-icon" viewBox="0 0 24 24" fill="none"><path d="M9 18V5l11-2v13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3" stroke="currentColor" stroke-width="1.6"/><circle cx="17" cy="16" r="3" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="music-text">
+            <span class="music-title" id="musicTitle">Nessuna musica</span>
+            <span class="music-sub" id="musicSub">Tocca per aggiungerne</span>
+        </span>
+    </button>
+
+    <button class="music-btn music-btn-accent" id="musicPlayBtn" aria-label="Riproduci" title="Riproduci">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M7 5.5v13l11-6.5-11-6.5Z" fill="currentColor"/></svg>
+    </button>
+
+    <button class="music-btn" id="musicNextBtn" aria-label="Brano successivo" title="Successivo">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M18 5v14M4 6l11 6-11 6V6Z" fill="currentColor"/></svg>
+    </button>
+</section>
+
+<audio id="audioPlayer" preload="none"></audio>
 
 <!-- Barra statistiche superiore: lascia libera la mappa sotto -->
 <section id="statsBar" class="stats-bar">
@@ -112,6 +141,36 @@
             <span class="segmented-info" id="wakeLockText">automatico durante la corsa</span>
         </div>
     </div>
+</aside>
+
+<!-- Pannello musica: playlist personale (brani o stream radio) -->
+<aside id="musicPanel" class="sheet" aria-hidden="true">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+        <h2>Musica</h2>
+        <button class="icon-btn" id="closeMusicBtn" aria-label="Chiudi">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+    </div>
+
+    <div id="musicPlaylist" class="music-playlist">
+        <p class="empty-state">Nessun brano in playlist. Aggiungi una traccia o uno stream qui sotto.</p>
+    </div>
+
+    <p class="section-label">Radio libere, un tocco per aggiungerle</p>
+    <div class="chip-row" id="radioPresets">
+        <button class="preset-chip" data-preset="groove">Groove Salad</button>
+        <button class="preset-chip" data-preset="beatblender">Beat Blender</button>
+        <button class="preset-chip" data-preset="secretagent">Secret Agent</button>
+    </div>
+
+    <p class="section-label">Aggiungi un brano o uno stream tuo</p>
+    <form id="addTrackForm" class="add-track-form">
+        <input type="text" id="trackTitleInput" placeholder="Titolo (es. La mia playlist)" required>
+        <input type="url" id="trackUrlInput" placeholder="URL audio diretto (.mp3, stream…)" required>
+        <button type="submit" class="glass-btn primary">Aggiungi alla playlist</button>
+    </form>
+    <p class="hint-text">Funziona con link audio diretti (file .mp3 o stream radio). Non è possibile riprodurre link di Spotify/YouTube/Apple Music per limiti tecnici di quei servizi.</p>
 </aside>
 
 <div class="scrim" id="scrim"></div>
