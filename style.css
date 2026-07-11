@@ -1,863 +1,910 @@
-/* ==========================================================================
-   CICLUS — Design tokens
-   Palette "asfalto + hi-vis": nero caldo da manto stradale, verde acido
-   da capo ciclistico ad alta visibilità come accento unico, rosso corsa
-   riservato solo a stop/allarme. Cifre in monospazio per lettura rapida
-   in movimento (stile ciclocomputer), UI in Space Grotesk.
-   ========================================================================== */
-:root {
-    --void: #08090b;
-    --panel: #121317;
-    --panel-glass: rgba(16, 18, 21, 0.72);
-    --panel-raised: rgba(255, 255, 255, 0.05);
-    --line: rgba(255, 255, 255, 0.09);
-    --line-soft: rgba(255, 255, 255, 0.05);
-
-    --text-primary: #F4F6F8;
-    --text-muted: #8B93A0;
-    --text-faint: #5B6270;
-
-    --accent: #C6FF3D;
-    --accent-dim: #9ED92F;
-    --accent-soft: rgba(198, 255, 61, 0.14);
-    --accent-glow: rgba(198, 255, 61, 0.45);
-
-    --danger: #FF5A5A;
-    --danger-soft: rgba(255, 90, 90, 0.16);
-
-    --warn: #FFC65A;
-
-    --radius-lg: 28px;
-    --radius-md: 18px;
-    --radius-sm: 12px;
-
-    --safe-top: env(safe-area-inset-top, 0px);
-    --safe-bottom: env(safe-area-inset-bottom, 0px);
-
-    --font-ui: 'Space Grotesk', system-ui, sans-serif;
-    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-}
+'use strict';
 
 /* ==========================================================================
-   Reset
+   CICLUS — logica applicazione
+   Organizzata attorno a un unico oggetto `state` per evitare variabili
+   globali sparse, e a piccole funzioni pure dove possibile (calcoli di
+   geometria, conversioni unità) separate dagli effetti collaterali (DOM).
    ========================================================================== */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-    font-family: var(--font-ui);
-    -webkit-tap-highlight-color: transparent;
-}
 
-html, body {
-    height: 100%;
-    width: 100%;
-    overflow: hidden;
-    background-color: var(--void);
-    color: var(--text-primary);
-    user-select: none;
-    -webkit-user-select: none;
-}
+const DIAL_MAX_SPEED = 60;      // km/h — fondo scala del quadrante
+const DIAL_START_ANGLE = -135;  // gradi, 0° = verso l'alto, orario positivo
+const DIAL_SWEEP = 270;         // gradi totali percorsi dal quadrante
+const GAUGE_RADIUS = 100;       // deve combaciare con il raggio nell'SVG
+const MIN_ACCURACY_FOR_DISTANCE = 30; // metri: oltre, il fix è troppo rumoroso
+const MIN_SPEED_THRESHOLD = 0.8;      // km/h sotto cui consideriamo il ciclista fermo
 
-button {
-    font: inherit;
-    color: inherit;
-    background: none;
-    border: none;
-    cursor: pointer;
-}
+const state = {
+    tracking: false,
+    paused: false,
+    unit: localStorage.getItem('ciclus_unit') || 'km', // 'km' | 'mi'
 
-.hidden { display: none !important; }
+    maxSpeed: 0,
+    totalDistance: 0,       // km, sempre in km internamente; convertito solo in UI
+    movingTime: 0,          // secondi effettivi di movimento/registrazione (esclude pausa)
+
+    lastPosition: null,     // { latitude, longitude, timestamp }
+    lastAcceptedSpeed: 0,
+    lastBearing: null,      // direzione (0-360°) da GPS o calcolata tra due fix
+
+    startTime: null,
+    pauseStartedAt: null,
+    timerInterval: null,
+
+    watchId: null,
+    wakeLock: null,
+
+    map: null,
+    marker: null,
+    headingEl: null,
+
+    playlist: [],           // { id, title, url, type: 'track' | 'radio' }
+    currentTrackIndex: -1,
+    isPlaying: false,
+};
+
+// Stazioni radio libere di SomaFM (servizio pensato per essere incorporato
+// liberamente), proposte come scorciatoia rapida nel pannello Musica.
+const RADIO_PRESETS = {
+    groove: { title: 'Groove Salad — SomaFM', url: 'https://ice1.somafm.com/groovesalad-128-mp3', type: 'radio' },
+    beatblender: { title: 'Beat Blender — SomaFM', url: 'https://ice1.somafm.com/beatblender-128-mp3', type: 'radio' },
+    secretagent: { title: 'Secret Agent — SomaFM', url: 'https://ice1.somafm.com/secretagent-128-mp3', type: 'radio' },
+};
 
 /* ==========================================================================
-   Barra statistiche superiore — lascia la mappa visibile sotto
+   Riferimenti DOM
    ========================================================================== */
-.stats-bar {
-    position: absolute;
-    top: calc(122px + var(--safe-top));
-    left: 16px;
-    right: 16px;
-    z-index: 850;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-}
+const el = {
+    speedGaugeSvg: document.getElementById('speedGaugeSvg'),
+    tickLayer: document.getElementById('tickLayer'),
+    gaugeTrack: document.getElementById('gaugeTrack'),
+    speedProgress: document.getElementById('speedProgress'),
+    speedNeedle: document.getElementById('speedNeedle'),
+    currentSpeed: document.getElementById('currentSpeed'),
+    speedUnitLabel: document.getElementById('speedUnitLabel'),
+    recIndicator: document.getElementById('recIndicator'),
 
-.stat-chip {
-    background: var(--panel-glass);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 8px 6px;
-    text-align: center;
-}
+    distance: document.getElementById('distance'),
+    distUnitLabel: document.getElementById('distUnitLabel'),
+    timer: document.getElementById('timer'),
+    avgSpeed: document.getElementById('avgSpeed'),
+    avgUnitLabel: document.getElementById('avgUnitLabel'),
+    maxSpeed: document.getElementById('maxSpeed'),
+    maxUnitLabel: document.getElementById('maxUnitLabel'),
+    accuracy: document.getElementById('accuracy'),
+    altitude: document.getElementById('altitude'),
 
-.stat-chip-minor {
-    grid-column: span 2;
-    padding: 5px 6px;
-    opacity: 0.85;
-}
+    startBtn: document.getElementById('startBtn'),
+    pauseBtn: document.getElementById('pauseBtn'),
+    stopBtn: document.getElementById('stopBtn'),
 
-.stat-value-minor { font-size: 0.85rem !important; }
+    gpsDot: document.getElementById('gpsDot'),
+    gpsText: document.getElementById('gpsText'),
 
-@media (min-width: 460px) {
-    .stats-bar { grid-template-columns: repeat(6, 1fr); }
-    .stat-chip-minor { grid-column: span 1; }
-}
+    historyBtn: document.getElementById('historyBtn'),
+    closeHistoryBtn: document.getElementById('closeHistoryBtn'),
+    historyPanel: document.getElementById('historyPanel'),
+    historyList: document.getElementById('historyList'),
+    clearHistoryBtn: document.getElementById('clearHistoryBtn'),
+
+    settingsBtn: document.getElementById('settingsBtn'),
+    closeSettingsBtn: document.getElementById('closeSettingsBtn'),
+    settingsPanel: document.getElementById('settingsPanel'),
+    unitToggle: document.getElementById('unitToggle'),
+
+    scrim: document.getElementById('scrim'),
+
+    summaryModal: document.getElementById('summaryModal'),
+    sumDistance: document.getElementById('sumDistance'),
+    sumTime: document.getElementById('sumTime'),
+    sumAvg: document.getElementById('sumAvg'),
+    sumMax: document.getElementById('sumMax'),
+    discardRideBtn: document.getElementById('discardRideBtn'),
+    saveRideBtn: document.getElementById('saveRideBtn'),
+
+    audioPlayer: document.getElementById('audioPlayer'),
+    musicBanner: document.getElementById('musicBanner'),
+    musicToggleBtn: document.getElementById('musicToggleBtn'),
+    musicInfoBtn: document.getElementById('musicInfoBtn'),
+    musicPrevBtn: document.getElementById('musicPrevBtn'),
+    musicPlayBtn: document.getElementById('musicPlayBtn'),
+    musicNextBtn: document.getElementById('musicNextBtn'),
+    musicTitle: document.getElementById('musicTitle'),
+    musicSub: document.getElementById('musicSub'),
+    musicPanel: document.getElementById('musicPanel'),
+    closeMusicBtn: document.getElementById('closeMusicBtn'),
+    musicPlaylist: document.getElementById('musicPlaylist'),
+    radioPresets: document.getElementById('radioPresets'),
+    addTrackForm: document.getElementById('addTrackForm'),
+    trackTitleInput: document.getElementById('trackTitleInput'),
+    trackUrlInput: document.getElementById('trackUrlInput'),
+};
+
+let pendingRide = null; // dati dell'ultima corsa in attesa di salvataggio/scarto
 
 /* ==========================================================================
-   Banner musicale
+   Avvio
    ========================================================================== */
-.music-banner {
-    position: absolute;
-    top: calc(64px + var(--safe-top));
-    left: 16px;
-    right: 16px;
-    z-index: 860;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px;
-    background: var(--panel-glass);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid var(--line);
-    border-radius: 999px;
+document.addEventListener('DOMContentLoaded', () => {
+    // L'inizializzazione della mappa dipende da una libreria esterna (CDN):
+    // se non si carica (rete assente/bloccata) l'app deve restare comunque
+    // utilizzabile per tachimetro, statistiche e cronologia.
+    try {
+        initMap();
+    } catch (err) {
+        console.warn('Mappa non disponibile:', err.message);
+        setGpsStatus('poor', 'Mappa non disponibile');
+    }
+    buildGaugeTrackAndTicks();
+    applyUnitToUI();
+    bindEvents();
+    renderHistory();
+    initMusicPlayer();
+});
+
+/* ==========================================================================
+   Mappa (Leaflet)
+   ========================================================================== */
+function initMap() {
+    const defaultPos = [45.4642, 9.1900]; // Milano, come fallback iniziale
+
+    state.map = L.map('map', { zoomControl: false, attributionControl: true })
+        .setView(defaultPos, 16);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap &copy; CARTO'
+    }).addTo(state.map);
+
+    const customIcon = L.divIcon({
+        className: 'custom-gps-marker',
+        html: '<div class="gps-marker-halo"></div><div class="gps-marker"><div class="gps-triangle"></div></div>',
+        iconSize: [34, 34],
+        iconAnchor: [17, 17]
+    });
+
+    state.marker = L.marker(defaultPos, { icon: customIcon }).addTo(state.map);
 }
 
-.music-btn {
-    width: 34px;
-    height: 34px;
-    flex-shrink: 0;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.06);
-    transition: transform 0.15s ease, background 0.2s ease;
-}
-
-.music-btn svg { width: 15px; height: 15px; }
-.music-btn:active { transform: scale(0.9); }
-
-.music-btn-accent {
-    background: var(--accent);
-    color: #0b0c0e;
-}
-
-.music-btn-accent:active { background: var(--accent-dim); }
-
-.music-info {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 6px;
-    color: var(--text-primary);
-}
-
-.music-note-icon {
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-    color: var(--text-muted);
-}
-
-.music-text {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    min-width: 0;
-    line-height: 1.25;
-}
-
-.music-title {
-    font-size: 0.78rem;
-    font-weight: 700;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
-}
-
-.music-sub {
-    font-size: 0.64rem;
-    color: var(--text-faint);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
+function updateMarkerHeading(headingDeg) {
+    const arrow = state.marker?.getElement()?.querySelector('.gps-marker');
+    if (!arrow || headingDeg === null || Number.isNaN(headingDeg)) return;
+    arrow.style.transform = `rotate(${headingDeg}deg)`;
 }
 
 /* ==========================================================================
-   Pannello Musica — playlist, radio libere, form di aggiunta
+   Quadrante — costruito a runtime così i tick, l'arco e la lancetta
+   condividono sempre la stessa geometria (nessun numero duplicato a mano).
    ========================================================================== */
-.music-playlist {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-bottom: 6px;
+function polarPoint(cx, cy, r, angleDeg) {
+    const rad = (angleDeg * Math.PI) / 180;
+    return { x: cx + r * Math.sin(rad), y: cy - r * Math.cos(rad) };
 }
 
-.music-playlist-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: var(--panel-raised);
-    border: 1px solid var(--line-soft);
-    border-radius: var(--radius-sm);
-    padding: 10px 12px;
+function buildGaugeTrackAndTicks() {
+    const cx = 120, cy = 120;
+    const circumference = 2 * Math.PI * GAUGE_RADIUS;
+    const arcLength = circumference * (DIAL_SWEEP / 360);
+    const dashArray = `${arcLength.toFixed(2)} ${circumference.toFixed(2)}`;
+
+    [el.gaugeTrack, el.speedProgress].forEach(circle => {
+        circle.setAttribute('stroke-dasharray', dashArray);
+        circle.setAttribute('transform', `rotate(135 ${cx} ${cy})`);
+    });
+    el.speedProgress.style.strokeDashoffset = arcLength;
+    el.speedProgress.dataset.arcLength = arcLength;
+
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const majorStep = 10;
+    const minorStep = 5;
+
+    for (let v = 0; v <= DIAL_MAX_SPEED; v += minorStep) {
+        const angle = DIAL_START_ANGLE + DIAL_SWEEP * (v / DIAL_MAX_SPEED);
+        const isMajor = v % majorStep === 0;
+
+        const outer = polarPoint(cx, cy, 88, angle);
+        const inner = polarPoint(cx, cy, isMajor ? 78 : 82, angle);
+
+        const line = document.createElementNS(svgNS, 'line');
+        line.setAttribute('x1', outer.x.toFixed(2));
+        line.setAttribute('y1', outer.y.toFixed(2));
+        line.setAttribute('x2', inner.x.toFixed(2));
+        line.setAttribute('y2', inner.y.toFixed(2));
+        line.setAttribute('class', isMajor ? 'tick-major' : 'tick-minor');
+        el.tickLayer.appendChild(line);
+
+        if (isMajor) {
+            const labelPos = polarPoint(cx, cy, 64, angle);
+            const text = document.createElementNS(svgNS, 'text');
+            text.setAttribute('x', labelPos.x.toFixed(2));
+            text.setAttribute('y', labelPos.y.toFixed(2));
+            text.setAttribute('class', 'tick-label');
+            text.textContent = v;
+            el.tickLayer.appendChild(text);
+        }
+    }
 }
 
-.music-playlist-item.active {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-}
+function updateGaugeVisual(speedKmh) {
+    const displaySpeed = Math.min(speedKmh, DIAL_MAX_SPEED);
+    const percentage = displaySpeed / DIAL_MAX_SPEED;
+    const arcLength = parseFloat(el.speedProgress.dataset.arcLength);
 
-.music-playlist-item-main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    text-align: left;
-    background: none;
-    gap: 2px;
-}
+    el.speedProgress.style.strokeDashoffset = arcLength - arcLength * percentage;
+    el.speedNeedle.style.transform = `rotate(${DIAL_START_ANGLE + DIAL_SWEEP * percentage}deg)`;
 
-.music-playlist-item-title {
-    font-size: 0.85rem;
-    font-weight: 700;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.music-playlist-item-type {
-    font-size: 0.66rem;
-    color: var(--text-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-.section-label {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: var(--text-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin: 16px 0 8px;
-}
-
-.chip-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.preset-chip {
-    padding: 8px 14px;
-    border-radius: 999px;
-    background: var(--panel-raised);
-    border: 1px solid var(--line-soft);
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-
-.preset-chip:active { background: var(--accent-soft); border-color: var(--accent); }
-
-.add-track-form {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.add-track-form input {
-    background: var(--panel-raised);
-    border: 1px solid var(--line-soft);
-    border-radius: var(--radius-sm);
-    padding: 12px 14px;
-    font-size: 0.85rem;
-    color: var(--text-primary);
-}
-
-.add-track-form input::placeholder { color: var(--text-faint); }
-.add-track-form input:focus { outline: none; border-color: var(--accent); }
-
-.hint-text {
-    font-size: 0.72rem;
-    color: var(--text-faint);
-    line-height: 1.5;
-    margin-top: 12px;
-    padding-bottom: 4px;
+    // La barra vira verso l'ambra oltre l'80% del fondo scala, per un colpo
+    // d'occhio in più senza dover leggere il numero.
+    el.speedProgress.style.stroke = percentage > 0.8 ? 'var(--warn)' : 'var(--accent)';
 }
 
 /* ==========================================================================
-   Mappa
+   Unità di misura
    ========================================================================== */
-#map {
-    height: 100%;
-    width: 100%;
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    filter: saturate(0.85) brightness(0.95);
+function kmToDisplayDistance(km) {
+    return state.unit === 'km' ? km : km * 0.621371;
 }
 
-.leaflet-control-attribution {
-    background: rgba(0, 0, 0, 0.55) !important;
-    color: rgba(255, 255, 255, 0.45) !important;
-    font-size: 8px !important;
+function kmhToDisplaySpeed(kmh) {
+    return state.unit === 'km' ? kmh : kmh * 0.621371;
 }
 
-.custom-gps-marker { display: flex; align-items: center; justify-content: center; }
+function applyUnitToUI() {
+    const speedUnit = state.unit === 'km' ? 'km/h' : 'mph';
+    const distUnit = state.unit === 'km' ? 'km' : 'mi';
 
-.gps-marker-halo {
-    position: absolute;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(198, 255, 61, 0.22) 0%, rgba(198, 255, 61, 0) 70%);
+    el.speedUnitLabel.textContent = speedUnit;
+    el.avgUnitLabel.textContent = speedUnit;
+    el.maxUnitLabel.textContent = speedUnit;
+    el.distUnitLabel.textContent = distUnit;
+
+    document.querySelectorAll('.segmented-option').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.unit === state.unit);
+    });
+
+    refreshStatDisplays();
 }
 
-.gps-marker {
-    position: relative;
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transform-origin: 50% 50%;
-    transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+function refreshStatDisplays() {
+    el.distance.textContent = kmToDisplayDistance(state.totalDistance).toFixed(2);
+    el.maxSpeed.textContent = kmhToDisplaySpeed(state.maxSpeed).toFixed(1);
+    el.avgSpeed.textContent = kmhToDisplaySpeed(computeAverageSpeed()).toFixed(1);
 }
 
-/* Triangolo CSS: punta verso l'alto (Nord) per default, ruotato via JS
-   in base a coords.heading (o al bearing calcolato tra due fix). */
-.gps-triangle {
-    width: 0;
-    height: 0;
-    border-left: 8px solid transparent;
-    border-right: 8px solid transparent;
-    border-bottom: 20px solid var(--accent);
-    filter: drop-shadow(0 0 4px var(--accent-glow)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+function computeAverageSpeed() {
+    if (state.movingTime <= 0) return 0;
+    return state.totalDistance / (state.movingTime / 3600);
 }
 
 /* ==========================================================================
-   Barra di stato superiore
+   Tracking GPS
    ========================================================================== */
-.status-bar {
-    position: absolute;
-    top: calc(16px + var(--safe-top));
-    left: 16px;
-    right: 16px;
-    z-index: 900;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
+function startTracking() {
+    if (!navigator.geolocation) {
+        setGpsStatus('poor', 'GPS non supportato');
+        return;
+    }
+
+    resetRideStats();
+    requestWakeLock();
+
+    state.startTime = Date.now();
+    state.timerInterval = setInterval(updateTimer, 1000);
+
+    const options = { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 };
+    state.watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, options);
+
+    state.tracking = true;
+    state.paused = false;
+    setGpsStatus('live', 'Acquisizione…');
+    el.recIndicator.classList.add('active');
+    setControlsMode('tracking');
 }
 
-.status-pill {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 14px;
-    background: var(--panel-glass);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.03em;
-    color: var(--text-muted);
+function pauseTracking() {
+    state.paused = true;
+    state.pauseStartedAt = Date.now();
+    if (state.watchId) navigator.geolocation.clearWatch(state.watchId);
+    state.watchId = null;
+    setGpsStatus('weak', 'In pausa');
+    setControlsMode('paused');
 }
 
-.status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--text-faint);
-    flex-shrink: 0;
-    transition: background 0.3s ease, box-shadow 0.3s ease;
+function resumeTracking() {
+    state.paused = false;
+    state.lastPosition = null; // evita di calcolare distanza sul salto durante la pausa
+    const options = { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 };
+    state.watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, options);
+    setGpsStatus('live', 'Acquisizione…');
+    setControlsMode('tracking');
 }
 
-.status-dot.live {
-    background: var(--accent);
-    box-shadow: 0 0 8px var(--accent-glow);
-    animation: pulse-dot 1.6s ease-in-out infinite;
+function stopTracking() {
+    if (state.watchId) navigator.geolocation.clearWatch(state.watchId);
+    state.watchId = null;
+    clearInterval(state.timerInterval);
+    releaseWakeLock();
+
+    state.tracking = false;
+    state.paused = false;
+    state.lastPosition = null;
+    el.recIndicator.classList.remove('active');
+    setGpsStatus('idle', 'GPS in attesa');
+    setControlsMode('idle');
+
+    updateGaugeVisual(0);
+    el.currentSpeed.textContent = '0.0';
+
+    openRideSummary();
 }
 
-.status-dot.weak { background: var(--warn); box-shadow: 0 0 8px rgba(255, 198, 90, 0.5); }
-.status-dot.poor { background: var(--danger); box-shadow: 0 0 8px rgba(255, 90, 90, 0.5); }
-
-@keyframes pulse-dot {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.45; }
+function resetRideStats() {
+    state.maxSpeed = 0;
+    state.totalDistance = 0;
+    state.movingTime = 0;
+    state.lastPosition = null;
+    state.lastAcceptedSpeed = 0;
+    state.lastBearing = null;
+    refreshStatDisplays();
+    el.timer.textContent = '00:00:00';
 }
 
-.status-actions { display: flex; gap: 8px; }
+function onPosition(position) {
+    const coords = position.coords;
+    const currentLatLng = [coords.latitude, coords.longitude];
 
-.icon-btn {
-    width: 38px;
-    height: 38px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--panel-glass);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid var(--line);
-    border-radius: 50%;
-    color: var(--text-primary);
-    transition: transform 0.15s ease, background 0.2s ease;
+    // Direzione: preferiamo la bussola del dispositivo; se assente, la
+    // deriviamo dallo spostamento rispetto al fix precedente (richiede un
+    // minimo di moto reale per non "sfarfallare" per rumore GPS da fermi).
+    let heading = typeof coords.heading === 'number' && !Number.isNaN(coords.heading) ? coords.heading : null;
+    if (heading === null && state.lastPosition) {
+        const movedKm = haversineDistanceKm(
+            state.lastPosition.latitude, state.lastPosition.longitude,
+            coords.latitude, coords.longitude
+        );
+        if (movedKm > 0.003) {
+            heading = computeBearingDeg(
+                state.lastPosition.latitude, state.lastPosition.longitude,
+                coords.latitude, coords.longitude
+            );
+        }
+    }
+    if (heading !== null) state.lastBearing = heading;
+
+    if (state.map && state.marker) {
+        state.map.panTo(currentLatLng, { animate: true, duration: 0.5 });
+        state.marker.setLatLng(currentLatLng);
+        updateMarkerHeading(state.lastBearing);
+    }
+
+    updateGpsQuality(coords.accuracy);
+    el.accuracy.textContent = coords.accuracy.toFixed(0);
+    el.altitude.textContent = typeof coords.altitude === 'number' ? coords.altitude.toFixed(0) : '--';
+
+    // Velocità: preferiamo quella fornita dal GPS; se assente (comune su
+    // desktop o alcuni Android), la deriviamo dallo spostamento tra due fix.
+    let speedKmh = typeof coords.speed === 'number' && coords.speed !== null
+        ? coords.speed * 3.6
+        : deriveSpeedFromFixes(coords, position.timestamp);
+
+    if (speedKmh < MIN_SPEED_THRESHOLD) speedKmh = 0;
+    state.lastAcceptedSpeed = speedKmh;
+
+    el.currentSpeed.textContent = kmhToDisplaySpeed(speedKmh).toFixed(1);
+    updateGaugeVisual(speedKmh);
+
+    if (speedKmh > state.maxSpeed) {
+        state.maxSpeed = speedKmh;
+        el.maxSpeed.textContent = kmhToDisplaySpeed(state.maxSpeed).toFixed(1);
+    }
+
+    // Un fix troppo impreciso gonfia la distanza con rumore: lo usiamo per
+    // orientare la mappa ma non per accumulare km.
+    if (state.lastPosition && coords.accuracy <= MIN_ACCURACY_FOR_DISTANCE) {
+        const dist = haversineDistanceKm(
+            state.lastPosition.latitude, state.lastPosition.longitude,
+            coords.latitude, coords.longitude
+        );
+        // Scarta anche micro-spostamenti dovuti al solo jitter del GPS da fermo.
+        if (dist > 0.001) {
+            state.totalDistance += dist;
+            el.distance.textContent = kmToDisplayDistance(state.totalDistance).toFixed(2);
+        }
+    }
+
+    if (coords.accuracy <= MIN_ACCURACY_FOR_DISTANCE) {
+        state.lastPosition = { latitude: coords.latitude, longitude: coords.longitude, timestamp: position.timestamp };
+    }
+
+    el.avgSpeed.textContent = kmhToDisplaySpeed(computeAverageSpeed()).toFixed(1);
 }
 
-.icon-btn svg { width: 18px; height: 18px; }
-.icon-btn:active { transform: scale(0.92); background: rgba(255, 255, 255, 0.12); }
-
-/* ==========================================================================
-   Cockpit — pannello principale
-   ========================================================================== */
-.speedo-dock {
-    position: absolute;
-    bottom: calc(18px + var(--safe-bottom));
-    left: 50%;
-    transform: translateX(-50%);
-    width: 232px;
-    height: 232px;
-    z-index: 800;
-
-    background: var(--panel-glass);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid var(--line);
-    border-radius: 50%;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
+function deriveSpeedFromFixes(coords, timestamp) {
+    if (!state.lastPosition) return 0;
+    const dtHours = (timestamp - state.lastPosition.timestamp) / 3_600_000;
+    if (dtHours <= 0) return state.lastAcceptedSpeed;
+    const distKm = haversineDistanceKm(
+        state.lastPosition.latitude, state.lastPosition.longitude,
+        coords.latitude, coords.longitude
+    );
+    return distKm / dtHours;
 }
 
-/* ==========================================================================
-   Tachimetro
-   ========================================================================== */
-.speedometer-wrapper {
-    position: relative;
-    width: 200px;
-    height: 200px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+function onPositionError(err) {
+    console.warn(`Errore GPS (${err.code}): ${err.message}`);
+    if (err.code === err.PERMISSION_DENIED) {
+        setGpsStatus('poor', 'Permesso GPS negato');
+        stopTracking();
+    } else {
+        setGpsStatus('weak', 'Segnale debole');
+    }
 }
 
-.speed-gauge {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    filter: drop-shadow(0 0 10px rgba(198, 255, 61, 0.18));
+function updateGpsQuality(accuracy) {
+    if (accuracy <= 15) setGpsStatus('live', 'Segnale ottimo');
+    else if (accuracy <= 35) setGpsStatus('weak', 'Segnale discreto');
+    else setGpsStatus('poor', 'Segnale debole');
 }
 
-.gauge-track {
-    stroke: rgba(255, 255, 255, 0.06);
-    stroke-width: 14;
-    stroke-linecap: round;
+function setGpsStatus(level, text) {
+    el.gpsDot.classList.remove('live', 'weak', 'poor');
+    if (level !== 'idle') el.gpsDot.classList.add(level);
+    el.gpsText.textContent = text;
 }
 
-.gauge-progress {
-    stroke: var(--accent);
-    stroke-width: 14;
-    stroke-linecap: round;
-    transition: stroke-dashoffset 0.4s ease-out, stroke 0.3s ease;
+function haversineDistanceKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-.tick-major { stroke: rgba(255, 255, 255, 0.55); stroke-width: 2.5; }
-.tick-minor { stroke: rgba(255, 255, 255, 0.22); stroke-width: 1.5; }
-.tick-label {
-    fill: var(--text-muted);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    text-anchor: middle;
-    dominant-baseline: middle;
-}
-
-.needle-group {
-    transform-origin: 120px 120px;
-    transform: rotate(-135deg);
-    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.needle { fill: var(--danger); }
-.needle-hub { fill: #0c0d10; stroke: var(--danger); stroke-width: 3; }
-
-.speed-digital {
-    position: absolute;
-    top: 56%;
-    transform: translateY(-50%);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-#currentSpeed {
-    font-family: var(--font-mono);
-    font-size: 2.7rem;
-    font-weight: 700;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-    text-shadow: 0 0 18px rgba(198, 255, 61, 0.25);
-}
-
-.unit {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    margin-top: 2px;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-}
-
-.rec-indicator {
-    position: absolute;
-    top: 8px;
-    right: 4px;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    font-family: var(--font-mono);
-    font-size: 0.65rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    color: var(--danger);
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-
-.rec-indicator.active { opacity: 1; }
-
-.rec-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--danger);
-    animation: pulse-dot 1.3s ease-in-out infinite;
+// Direzione (0°=Nord, in senso orario) tra due punti — usata come fallback
+// per orientare il triangolo sulla mappa quando coords.heading non è
+// disponibile (comune quando il dispositivo è quasi fermo o non ha bussola).
+function computeBearingDeg(lat1, lon1, lat2, lon2) {
+    const φ1 = (lat1 * Math.PI) / 180, φ2 = (lat2 * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
 /* ==========================================================================
-   Etichette statistiche (condivise da stat-chip nella barra superiore
-   e da summary-item nel modale di riepilogo)
+   Timer (esclude il tempo trascorso in pausa)
    ========================================================================== */
-.stat-label {
-    display: block;
-    font-size: 0.62rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-faint);
-    margin-bottom: 4px;
+function updateTimer() {
+    if (state.paused) return;
+    const elapsedMs = Date.now() - state.startTime;
+    state.movingTime = elapsedMs / 1000;
+    el.timer.textContent = formatDuration(elapsedMs);
+    el.avgSpeed.textContent = kmhToDisplaySpeed(computeAverageSpeed()).toFixed(1);
 }
 
-.stat-value {
-    font-family: var(--font-mono);
-    font-size: 1.05rem;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-}
-
-.unit-small {
-    font-family: var(--font-ui);
-    font-size: 0.68rem;
-    font-weight: 500;
-    color: var(--text-muted);
+function formatDuration(ms) {
+    const date = new Date(ms);
+    const hh = String(date.getUTCHours()).padStart(2, '0');
+    const mm = String(date.getUTCMinutes()).padStart(2, '0');
+    const ss = String(date.getUTCSeconds()).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
 }
 
 /* ==========================================================================
-   Controlli
+   Controlli — Inizia / Pausa / Termina
    ========================================================================== */
-.ride-controls {
-    position: absolute;
-    bottom: calc(18px + 232px + 14px + var(--safe-bottom));
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 800;
-    display: flex;
-    gap: 10px;
-    padding: 6px;
-    background: var(--panel-glass);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-}
+const ICON_PAUSE = '<rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/>';
+const ICON_PLAY = '<path d="M7 5.5v13l11-6.5-11-6.5Z" fill="currentColor"/>';
 
-.dock-btn {
-    width: 46px;
-    height: 46px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.06);
-    transition: transform 0.15s ease, background 0.2s ease;
-}
-
-.dock-btn svg { width: 20px; height: 20px; }
-.dock-btn:active { transform: scale(0.92); }
-
-.dock-btn-start {
-    background: var(--accent);
-    color: #0b0c0e;
-}
-
-.dock-btn-start:active { background: var(--accent-dim); }
-
-.dock-btn-stop {
-    background: var(--danger-soft);
-    color: var(--danger);
-}
-
-.glass-btn {
-    flex: 1;
-    padding: 13px 10px;
-    border-radius: 14px;
-    border: 1px solid var(--line);
-    font-size: 0.85rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    transition: transform 0.15s ease, background 0.2s ease;
-}
-
-.glass-btn:active { transform: scale(0.97); }
-
-.glass-btn.primary {
-    background: var(--accent);
-    color: #0b0c0e;
-    border-color: var(--accent);
-}
-
-.glass-btn.primary:active { background: var(--accent-dim); }
-
-.glass-btn.ghost {
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--text-primary);
-}
-
-.glass-btn.danger {
-    background: var(--danger-soft);
-    color: var(--danger);
-    border-color: rgba(255, 90, 90, 0.35);
+function setControlsMode(mode) {
+    if (mode === 'idle') {
+        el.startBtn.classList.remove('hidden');
+        el.pauseBtn.classList.add('hidden');
+        el.stopBtn.classList.add('hidden');
+    } else if (mode === 'tracking') {
+        el.startBtn.classList.add('hidden');
+        el.pauseBtn.classList.remove('hidden');
+        el.stopBtn.classList.remove('hidden');
+        el.pauseBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none">${ICON_PAUSE}</svg>`;
+        el.pauseBtn.setAttribute('aria-label', 'Pausa');
+        el.pauseBtn.setAttribute('title', 'Pausa');
+    } else if (mode === 'paused') {
+        el.startBtn.classList.add('hidden');
+        el.pauseBtn.classList.remove('hidden');
+        el.stopBtn.classList.remove('hidden');
+        el.pauseBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none">${ICON_PLAY}</svg>`;
+        el.pauseBtn.setAttribute('aria-label', 'Riprendi');
+        el.pauseBtn.setAttribute('title', 'Riprendi');
+    }
 }
 
 /* ==========================================================================
-   Sheet (Cronologia / Impostazioni)
+   Riepilogo e cronologia corse (localStorage)
    ========================================================================== */
-.scrim {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.55);
-    z-index: 950;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.25s ease;
+const HISTORY_KEY = 'ciclus_rides';
+
+function openRideSummary() {
+    pendingRide = {
+        date: new Date().toISOString(),
+        distanceKm: state.totalDistance,
+        movingTimeSec: state.movingTime,
+        maxSpeedKmh: state.maxSpeed,
+        avgSpeedKmh: computeAverageSpeed(),
+    };
+
+    el.sumDistance.textContent = `${kmToDisplayDistance(pendingRide.distanceKm).toFixed(2)} ${state.unit === 'km' ? 'km' : 'mi'}`;
+    el.sumTime.textContent = formatDuration(pendingRide.movingTimeSec * 1000);
+    el.sumAvg.textContent = `${kmhToDisplaySpeed(pendingRide.avgSpeedKmh).toFixed(1)} ${state.unit === 'km' ? 'km/h' : 'mph'}`;
+    el.sumMax.textContent = `${kmhToDisplaySpeed(pendingRide.maxSpeedKmh).toFixed(1)} ${state.unit === 'km' ? 'km/h' : 'mph'}`;
+
+    // Corse troppo brevi non vale la pena proporle per il salvataggio.
+    if (pendingRide.distanceKm < 0.05 && pendingRide.movingTimeSec < 30) {
+        pendingRide = null;
+        return;
+    }
+
+    el.summaryModal.classList.add('open');
+    el.summaryModal.setAttribute('aria-hidden', 'false');
 }
 
-.scrim.visible { opacity: 1; pointer-events: auto; }
-
-.sheet {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 960;
-    max-height: 78vh;
-    background: #121317;
-    border: 1px solid var(--line);
-    border-bottom: none;
-    border-radius: 26px 26px 0 0;
-    padding: 10px 20px calc(24px + var(--safe-bottom));
-    transform: translateY(100%);
-    transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
-    overflow-y: auto;
-    box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.5);
+function closeRideSummary() {
+    el.summaryModal.classList.remove('open');
+    el.summaryModal.setAttribute('aria-hidden', 'true');
+    pendingRide = null;
 }
 
-.sheet.open { transform: translateY(0); }
-
-.sheet-handle {
-    width: 40px;
-    height: 4px;
-    border-radius: 4px;
-    background: var(--line);
-    margin: 8px auto 14px;
+function saveRide() {
+    if (!pendingRide) return closeRideSummary();
+    const rides = loadRides();
+    rides.unshift(pendingRide);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(rides.slice(0, 100)));
+    renderHistory();
+    closeRideSummary();
 }
 
-.sheet-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 16px;
+function loadRides() {
+    try {
+        return JSON.parse(localStorage.getItem(HISTORY_KEY)) || [];
+    } catch {
+        return [];
+    }
 }
 
-.sheet-header h2 { font-size: 1.05rem; font-weight: 700; }
+function renderHistory() {
+    const rides = loadRides();
+    if (rides.length === 0) {
+        el.historyList.innerHTML = '<p class="empty-state">Nessuna corsa salvata ancora. Le corse completate compariranno qui.</p>';
+        return;
+    }
 
-.empty-state {
-    color: var(--text-faint);
-    font-size: 0.85rem;
-    padding: 30px 0;
-    text-align: center;
-    line-height: 1.5;
+    el.historyList.innerHTML = rides.map((ride, index) => {
+        const dateLabel = new Date(ride.date).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+        const dist = kmToDisplayDistance(ride.distanceKm).toFixed(2);
+        const distUnit = state.unit === 'km' ? 'km' : 'mi';
+        const time = formatDuration(ride.movingTimeSec * 1000);
+        const avg = kmhToDisplaySpeed(ride.avgSpeedKmh).toFixed(1);
+        return `
+            <div class="history-item">
+                <div class="history-item-main">
+                    <span class="history-date">${dateLabel}</span>
+                    <span class="history-metrics">${dist} ${distUnit}</span>
+                    <span class="history-sub">${time} · media ${avg} ${state.unit === 'km' ? 'km/h' : 'mph'}</span>
+                </div>
+                <button class="history-delete" data-index="${index}" aria-label="Elimina corsa">
+                    <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0-1 13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 7h12Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+            </div>`;
+    }).join('');
+
+    el.historyList.querySelectorAll('.history-delete').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const rides = loadRides();
+            rides.splice(Number(btn.dataset.index), 1);
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(rides));
+            renderHistory();
+        });
+    });
 }
-
-.history-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
-
-.history-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--panel-raised);
-    border: 1px solid var(--line-soft);
-    border-radius: var(--radius-sm);
-    padding: 12px 14px;
-}
-
-.history-item-main { display: flex; flex-direction: column; gap: 3px; }
-.history-date { font-size: 0.72rem; color: var(--text-faint); }
-.history-metrics { font-family: var(--font-mono); font-size: 0.9rem; font-weight: 700; }
-.history-sub { font-size: 0.72rem; color: var(--text-muted); }
-
-.history-delete {
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-faint);
-    border-radius: 50%;
-}
-
-.history-delete:active { background: var(--danger-soft); color: var(--danger); }
-.history-delete svg { width: 16px; height: 16px; }
-
-.text-btn {
-    width: 100%;
-    text-align: center;
-    padding: 12px;
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--text-muted);
-}
-
-.text-btn.danger { color: var(--danger); }
-
-/* Impostazioni */
-.setting-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 0;
-    border-bottom: 1px solid var(--line-soft);
-    font-size: 0.9rem;
-}
-
-.segmented {
-    display: flex;
-    background: var(--panel-raised);
-    border-radius: 10px;
-    padding: 3px;
-    gap: 3px;
-}
-
-.segmented-option {
-    padding: 7px 14px;
-    border-radius: 8px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--text-muted);
-}
-
-.segmented-option.active { background: var(--accent); color: #0b0c0e; }
-
-.segmented-info { font-size: 0.76rem; color: var(--text-faint); padding: 7px 4px; }
 
 /* ==========================================================================
-   Modale riepilogo corsa
+   Pannelli (sheet) e modali
    ========================================================================== */
-.modal {
-    position: fixed;
-    inset: 0;
-    z-index: 1000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0, 0, 0, 0.6);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.25s ease;
-    padding: 20px;
+function openSheet(panel) {
+    el.scrim.classList.add('visible');
+    panel.classList.add('open');
+    panel.setAttribute('aria-hidden', 'false');
 }
 
-.modal.open { opacity: 1; pointer-events: auto; }
-
-.modal-card {
-    width: 100%;
-    max-width: 360px;
-    background: #14161a;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
-    padding: 26px;
-    transform: scale(0.94);
-    transition: transform 0.25s ease;
+function closeSheet(panel) {
+    el.scrim.classList.remove('visible');
+    panel.classList.remove('open');
+    panel.setAttribute('aria-hidden', 'true');
 }
-
-.modal.open .modal-card { transform: scale(1); }
-
-.modal-card h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: 18px; text-align: center; }
-
-.summary-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 22px;
-}
-
-.summary-item {
-    background: var(--panel-raised);
-    border-radius: var(--radius-sm);
-    padding: 12px;
-    text-align: center;
-    border: 1px solid var(--line-soft);
-}
-
-.summary-item strong {
-    display: block;
-    font-family: var(--font-mono);
-    font-size: 1.1rem;
-    margin-top: 4px;
-}
-
-.modal-actions { display: flex; gap: 10px; }
 
 /* ==========================================================================
-   Responsive
+   Wake Lock — evita che lo schermo si spenga durante la corsa
    ========================================================================== */
-@media (max-width: 380px) {
-    .speedometer-wrapper { width: 176px; height: 176px; }
-    #currentSpeed { font-size: 2.3rem; }
-    .speedo-dock { width: 208px; height: 208px; }
-    .ride-controls { bottom: calc(18px + 208px + 14px + var(--safe-bottom)); }
-    .stats-bar { grid-template-columns: 1fr 1fr; }
-    .stat-chip-minor { grid-column: span 1; }
+async function requestWakeLock() {
+    try {
+        if ('wakeLock' in navigator) {
+            state.wakeLock = await navigator.wakeLock.request('screen');
+        }
+    } catch (err) {
+        console.warn(`WakeLock non disponibile: ${err.message}`);
+    }
 }
 
-@media (prefers-reduced-motion: reduce) {
-    .status-dot.live, .rec-dot { animation: none; }
-    .needle-group, .gauge-progress, .glass-btn, .sheet, .modal, .modal-card { transition: none; }
+function releaseWakeLock() {
+    if (state.wakeLock) {
+        state.wakeLock.release().then(() => { state.wakeLock = null; });
+    }
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && state.tracking && !state.paused && !state.wakeLock) {
+        requestWakeLock();
+    }
+});
+
+/* ==========================================================================
+   Musica — playlist personale (brani o stream radio) con controlli reali
+   sulla lock screen tramite la Media Session API. Un sito web non può
+   controllare la musica di altre app (Spotify, Apple Music, ecc.): qui
+   l'audio è riprodotto direttamente da Ciclus, quindi il sistema operativo
+   può davvero mostrare titolo e pulsanti play/pausa/avanti/indietro anche
+   a schermo bloccato o con l'app in background.
+   ========================================================================== */
+const MUSIC_KEY = 'ciclus_playlist';
+
+function initMusicPlayer() {
+    state.playlist = loadPlaylist();
+    renderMusicPlaylistPanel();
+    updateMusicBannerUI();
+    setupMediaSessionHandlers();
+
+    el.audioPlayer.addEventListener('play', () => {
+        state.isPlaying = true;
+        updateMusicBannerUI();
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    });
+
+    el.audioPlayer.addEventListener('pause', () => {
+        state.isPlaying = false;
+        updateMusicBannerUI();
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    });
+
+    el.audioPlayer.addEventListener('ended', () => nextTrack());
+
+    el.audioPlayer.addEventListener('error', () => {
+        if (state.playlist.length === 0) return;
+        el.musicSub.textContent = 'Impossibile riprodurre questa traccia';
+    });
+}
+
+function loadPlaylist() {
+    try {
+        return JSON.parse(localStorage.getItem(MUSIC_KEY)) || [];
+    } catch {
+        return [];
+    }
+}
+
+function savePlaylist() {
+    localStorage.setItem(MUSIC_KEY, JSON.stringify(state.playlist));
+}
+
+function addTrack(title, url, type = 'track') {
+    state.playlist.push({ id: `${Date.now()}`, title, url, type });
+    savePlaylist();
+    renderMusicPlaylistPanel();
+    // Se non c'era ancora nulla in coda, avvia subito il brano appena aggiunto.
+    if (state.currentTrackIndex === -1) {
+        playTrackAtIndex(state.playlist.length - 1);
+    }
+}
+
+function removeTrack(index) {
+    const wasCurrentlyPlaying = index === state.currentTrackIndex;
+    state.playlist.splice(index, 1);
+    savePlaylist();
+
+    if (state.playlist.length === 0) {
+        state.currentTrackIndex = -1;
+        el.audioPlayer.pause();
+        el.audioPlayer.removeAttribute('src');
+    } else if (wasCurrentlyPlaying) {
+        playTrackAtIndex(Math.min(index, state.playlist.length - 1));
+    } else if (index < state.currentTrackIndex) {
+        state.currentTrackIndex -= 1;
+    }
+
+    renderMusicPlaylistPanel();
+    updateMusicBannerUI();
+}
+
+function playTrackAtIndex(index) {
+    const track = state.playlist[index];
+    if (!track) return;
+
+    state.currentTrackIndex = index;
+    el.audioPlayer.src = track.url;
+    el.audioPlayer.loop = state.playlist.length === 1;
+
+    const playPromise = el.audioPlayer.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {
+            // L'autoplay può essere bloccato dal browser: l'utente dovrà
+            // toccare di nuovo play, cosa normale sui browser mobile.
+            state.isPlaying = false;
+            updateMusicBannerUI();
+        });
+    }
+
+    updateMediaSessionMetadata(track);
+    renderMusicPlaylistPanel();
+    updateMusicBannerUI();
+}
+
+function togglePlayPause() {
+    if (state.playlist.length === 0) {
+        openSheet(el.musicPanel);
+        return;
+    }
+    if (state.currentTrackIndex === -1) {
+        playTrackAtIndex(0);
+        return;
+    }
+    if (el.audioPlayer.paused) {
+        el.audioPlayer.play().catch(() => {});
+    } else {
+        el.audioPlayer.pause();
+    }
+}
+
+function nextTrack() {
+    if (state.playlist.length === 0) return;
+    const next = (state.currentTrackIndex + 1) % state.playlist.length;
+    playTrackAtIndex(next);
+}
+
+function prevTrack() {
+    if (state.playlist.length === 0) return;
+    const prev = (state.currentTrackIndex - 1 + state.playlist.length) % state.playlist.length;
+    playTrackAtIndex(prev);
+}
+
+function updateMusicBannerUI() {
+    const track = state.playlist[state.currentTrackIndex];
+
+    if (!track) {
+        el.musicTitle.textContent = 'Nessuna musica';
+        el.musicSub.textContent = 'Tocca per aggiungerne';
+    } else {
+        el.musicTitle.textContent = track.title;
+        el.musicSub.textContent = track.type === 'radio' ? 'Radio in diretta' : 'In riproduzione da Ciclus';
+    }
+
+    el.musicPlayBtn.innerHTML = state.isPlaying
+        ? `<svg viewBox="0 0 24 24" fill="none">${ICON_PAUSE}</svg>`
+        : `<svg viewBox="0 0 24 24" fill="none">${ICON_PLAY}</svg>`;
+    el.musicPlayBtn.setAttribute('aria-label', state.isPlaying ? 'Pausa' : 'Riproduci');
+}
+
+// Espone titolo/artista e pulsanti play-pausa-avanti-indietro al sistema
+// operativo (notifica media, lock screen, cuffie bluetooth…). Funziona solo
+// per l'audio riprodotto qui: nessun sito può agganciarsi ad app esterne.
+function setupMediaSessionHandlers() {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.setActionHandler('play', () => el.audioPlayer.play().catch(() => {}));
+    navigator.mediaSession.setActionHandler('pause', () => el.audioPlayer.pause());
+    navigator.mediaSession.setActionHandler('previoustrack', prevTrack);
+    navigator.mediaSession.setActionHandler('nexttrack', nextTrack);
+}
+
+function updateMediaSessionMetadata(track) {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+        title: track.title,
+        artist: track.type === 'radio' ? 'Radio in diretta' : 'Ciclus',
+        album: 'Ciclus — Ciclocomputer GPS',
+        artwork: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml' }],
+    });
+}
+
+function renderMusicPlaylistPanel() {
+    if (state.playlist.length === 0) {
+        el.musicPlaylist.innerHTML = '<p class="empty-state">Nessun brano in playlist. Aggiungi una traccia o uno stream qui sotto.</p>';
+        return;
+    }
+
+    el.musicPlaylist.innerHTML = state.playlist.map((track, index) => `
+        <div class="music-playlist-item ${index === state.currentTrackIndex ? 'active' : ''}">
+            <button class="music-playlist-item-main" data-play-index="${index}">
+                <span class="music-playlist-item-title">${escapeHtml(track.title)}</span>
+                <span class="music-playlist-item-type">${track.type === 'radio' ? 'Radio' : 'Brano'}</span>
+            </button>
+            <button class="history-delete" data-remove-index="${index}" aria-label="Rimuovi dalla playlist">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0-1 13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 7h12Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+        </div>`).join('');
+
+    el.musicPlaylist.querySelectorAll('[data-play-index]').forEach(btn => {
+        btn.addEventListener('click', () => playTrackAtIndex(Number(btn.dataset.playIndex)));
+    });
+    el.musicPlaylist.querySelectorAll('[data-remove-index]').forEach(btn => {
+        btn.addEventListener('click', () => removeTrack(Number(btn.dataset.removeIndex)));
+    });
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+/* ==========================================================================
+   Collegamento eventi
+   ========================================================================== */
+function bindEvents() {
+    el.startBtn.addEventListener('click', startTracking);
+
+    el.pauseBtn.addEventListener('click', () => {
+        if (state.paused) resumeTracking();
+        else pauseTracking();
+    });
+
+    el.stopBtn.addEventListener('click', stopTracking);
+
+    el.historyBtn.addEventListener('click', () => { renderHistory(); openSheet(el.historyPanel); });
+    el.closeHistoryBtn.addEventListener('click', () => closeSheet(el.historyPanel));
+    el.clearHistoryBtn.addEventListener('click', () => {
+        localStorage.removeItem(HISTORY_KEY);
+        renderHistory();
+    });
+
+    el.settingsBtn.addEventListener('click', () => openSheet(el.settingsPanel));
+    el.closeSettingsBtn.addEventListener('click', () => closeSheet(el.settingsPanel));
+
+    el.unitToggle.querySelectorAll('.segmented-option').forEach(btn => {
+        btn.addEventListener('click', () => {
+            state.unit = btn.dataset.unit;
+            localStorage.setItem('ciclus_unit', state.unit);
+            applyUnitToUI();
+        });
+    });
+
+    el.scrim.addEventListener('click', () => {
+        closeSheet(el.historyPanel);
+        closeSheet(el.settingsPanel);
+        closeSheet(el.musicPanel);
+    });
+
+    el.discardRideBtn.addEventListener('click', closeRideSummary);
+    el.saveRideBtn.addEventListener('click', saveRide);
+
+    el.musicPlayBtn.addEventListener('click', togglePlayPause);
+    el.musicPrevBtn.addEventListener('click', prevTrack);
+    el.musicNextBtn.addEventListener('click', nextTrack);
+    el.musicInfoBtn.addEventListener('click', () => openSheet(el.musicPanel));
+    el.musicToggleBtn.addEventListener('click', () => openSheet(el.musicPanel));
+    el.closeMusicBtn.addEventListener('click', () => closeSheet(el.musicPanel));
+
+    el.radioPresets.querySelectorAll('.preset-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const preset = RADIO_PRESETS[chip.dataset.preset];
+            if (preset) addTrack(preset.title, preset.url, preset.type);
+        });
+    });
+
+    el.addTrackForm.addEventListener('submit', (evt) => {
+        evt.preventDefault();
+        const title = el.trackTitleInput.value.trim();
+        const url = el.trackUrlInput.value.trim();
+        if (!title || !url) return;
+        addTrack(title, url, 'track');
+        el.addTrackForm.reset();
+    });
 }
