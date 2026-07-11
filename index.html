@@ -27,8 +27,10 @@
 </head>
 <body>
 
-<!-- Mappa Full-Screen -->
-<div id="map"></div>
+<!-- Mappa con Contenitore per Rotazione -->
+<div id="map-container">
+    <div id="map"></div>
+</div>
 
 <!-- Barra di stato superiore -->
 <header id="statusBar" class="status-bar">
@@ -38,6 +40,10 @@
     </div>
 
     <div class="status-actions">
+        <!-- Nuovo pulsante Tappe -->
+        <button class="icon-btn" id="tappeBtn" aria-label="Tappe e Tempi" title="Tappe">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
+        </button>
         <button class="icon-btn" id="historyBtn" aria-label="Cronologia corse" title="Cronologia">
             <svg viewBox="0 0 24 24" fill="none"><path d="M3 12a9 9 0 1 0 3-6.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3 4v5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -47,7 +53,7 @@
     </div>
 </header>
 
-<!-- Barra statistiche superiore: lascia libera la mappa sotto -->
+<!-- Barra statistiche superiore -->
 <section id="statsBar" class="stats-bar">
     <div class="stat-chip">
         <span class="stat-label">Distanza</span>
@@ -75,6 +81,21 @@
     </div>
 </section>
 
+<!-- Pannello Tappe -->
+<aside id="tappePanel" class="sheet" aria-hidden="true">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+        <h2>Tappe e Tempi</h2>
+        <button class="icon-btn" id="closeTappeBtn" aria-label="Chiudi">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+    </div>
+    <button id="addTappaBtn" class="glass-btn primary" style="width:100%; margin-bottom:15px;">Salva Posizione Attuale come Tappa</button>
+    <div id="tappeList" class="history-list">
+        <p class="empty-state">Nessuna tappa salvata. Aggiungi tappe per registrare i tempi di passaggio.</p>
+    </div>
+</aside>
+
 <!-- Pannello cronologia -->
 <aside id="historyPanel" class="sheet" aria-hidden="true">
     <div class="sheet-handle"></div>
@@ -98,6 +119,27 @@
         <button class="icon-btn" id="closeSettingsBtn" aria-label="Chiudi">
             <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </button>
+    </div>
+    <div class="setting-row">
+        <span>Tema Mappa</span>
+        <div class="segmented" id="mapThemeToggle">
+            <button class="segmented-option active" data-theme="dark">Scuro</button>
+            <button class="segmented-option" data-theme="light">Chiaro</button>
+        </div>
+    </div>
+    <div class="setting-row">
+        <span>Rotazione Mappa (Bussola)</span>
+        <div class="segmented" id="mapRotateToggle">
+            <button class="segmented-option" data-rotate="off">Fissa</button>
+            <button class="segmented-option active" data-rotate="on">Segui</button>
+        </div>
+    </div>
+    <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 10px;">
+        <div style="width:100%; display:flex; justify-content:space-between;">
+            <span>Livello Zoom</span>
+            <span id="zoomLevelDisplay" class="segmented-info">18</span>
+        </div>
+        <input type="range" id="mapZoomSlider" min="14" max="20" value="18" style="width:100%;">
     </div>
     <div class="setting-row">
         <span>Unità di misura</span>
@@ -145,7 +187,7 @@
     </div>
 </div>
 
-<!-- Dock tachimetro — cerchio puro, nient'altro, per lasciare la mappa visibile intorno -->
+<!-- Dock tachimetro -->
 <main id="speedoDock" class="speedo-dock">
     <div class="speedometer-wrapper">
         <svg class="speed-gauge" id="speedGaugeSvg" viewBox="0 0 240 240">
@@ -169,7 +211,7 @@
     </div>
 </main>
 
-<!-- Controlli — mini pill separata, non fa parte del cerchio -->
+<!-- Controlli -->
 <div id="rideControls" class="ride-controls">
     <button id="startBtn" class="dock-btn dock-btn-start" aria-label="Inizia corsa" title="Inizia corsa">
         <svg viewBox="0 0 24 24" fill="none"><path d="M7 5.5v13l11-6.5-11-6.5Z" fill="currentColor"/></svg>

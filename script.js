@@ -2,30 +2,34 @@
 
 /* ==========================================================================
    CICLUS — logica applicazione
-   Organizzata attorno a un unico oggetto `state` per evitare variabili
-   globali sparse, e a piccole funzioni pure dove possibile (calcoli di
-   geometria, conversioni unità) separate dagli effetti collaterali (DOM).
    ========================================================================== */
 
-const DIAL_MAX_SPEED = 60;      // km/h — fondo scala del quadrante
-const DIAL_START_ANGLE = -135;  // gradi, 0° = verso l'alto, orario positivo
-const DIAL_SWEEP = 270;         // gradi totali percorsi dal quadrante
-const GAUGE_RADIUS = 100;       // deve combaciare con il raggio nell'SVG
-const MIN_ACCURACY_FOR_DISTANCE = 30; // metri: oltre, il fix è troppo rumoroso
-const MIN_SPEED_THRESHOLD = 0.8;      // km/h sotto cui consideriamo il ciclista fermo
+const DIAL_MAX_SPEED = 60;      
+const DIAL_START_ANGLE = -135;  
+const DIAL_SWEEP = 270;         
+const GAUGE_RADIUS = 100;       
+const MIN_ACCURACY_FOR_DISTANCE = 30; 
+const MIN_SPEED_THRESHOLD = 0.8;      
+const TAPPA_PROXIMITY_RADIUS = 0.03; // 30 metri per innescare il passaggio dalla tappa
 
 const state = {
     tracking: false,
     paused: false,
-    unit: localStorage.getItem('ciclus_unit') || 'km', // 'km' | 'mi'
+    unit: localStorage.getItem('ciclus_unit') || 'km',
+    mapTheme: localStorage.getItem('ciclus_theme') || 'dark', // 'dark' | 'light'
+    mapRotate: localStorage.getItem('ciclus_rotate') || 'on', // 'on' | 'off'
+    mapZoom: parseInt(localStorage.getItem('ciclus_zoom')) || 18,
+    
+    tappe: JSON.parse(localStorage.getItem('ciclus_tappe')) || [],
+    tappeRaggiunteCorrenti: [], // Evita di registrare la stessa tappa più volte in un colpo
 
     maxSpeed: 0,
-    totalDistance: 0,       // km, sempre in km internamente; convertito solo in UI
-    movingTime: 0,          // secondi effettivi di movimento/registrazione (esclude pausa)
+    totalDistance: 0,       
+    movingTime: 0,          
 
-    lastPosition: null,     // { latitude, longitude, timestamp }
+    lastPosition: null,     
     lastAcceptedSpeed: 0,
-    lastBearing: null,      // direzione (0-360°) da GPS o calcolata tra due fix
+    lastBearing: null,      
 
     startTime: null,
     pauseStartedAt: null,
@@ -35,14 +39,16 @@ const state = {
     wakeLock: null,
 
     map: null,
+    tileLayer: null,
     marker: null,
-    headingEl: null,
 };
 
 /* ==========================================================================
    Riferimenti DOM
    ========================================================================== */
 const el = {
+    mapContainer: document.getElementById('map-container'),
+    
     speedGaugeSvg: document.getElementById('speedGaugeSvg'),
     tickLayer: document.getElementById('tickLayer'),
     gaugeTrack: document.getElementById('gaugeTrack'),
@@ -79,6 +85,16 @@ const el = {
     closeSettingsBtn: document.getElementById('closeSettingsBtn'),
     settingsPanel: document.getElementById('settingsPanel'),
     unitToggle: document.getElementById('unitToggle'),
+    mapThemeToggle: document.getElementById('mapThemeToggle'),
+    mapRotateToggle: document.getElementById('mapRotateToggle'),
+    mapZoomSlider: document.getElementById('mapZoomSlider'),
+    zoomLevelDisplay: document.getElementById('zoomLevelDisplay'),
+
+    tappeBtn: document.getElementById('tappeBtn'),
+    closeTappeBtn: document.getElementById('closeTappeBtn'),
+    tappePanel: document.getElementById('tappePanel'),
+    addTappaBtn: document.getElementById('addTappaBtn'),
+    tappeList: document.getElementById('tappeList'),
 
     scrim: document.getElementById('scrim'),
 
@@ -91,15 +107,12 @@ const el = {
     saveRideBtn: document.getElementById('saveRideBtn'),
 };
 
-let pendingRide = null; // dati dell'ultima corsa in attesa di salvataggio/scarto
+let pendingRide = null; 
 
 /* ==========================================================================
    Avvio
    ========================================================================== */
 document.addEventListener('DOMContentLoaded', () => {
-    // L'inizializzazione della mappa dipende da una libreria esterna (CDN):
-    // se non si carica (rete assente/bloccata) l'app deve restare comunque
-    // utilizzabile per tachimetro, statistiche e cronologia.
     try {
         initMap();
     } catch (err) {
@@ -107,24 +120,25 @@ document.addEventListener('DOMContentLoaded', () => {
         setGpsStatus('poor', 'Mappa non disponibile');
     }
     buildGaugeTrackAndTicks();
-    applyUnitToUI();
+    applySettingsToUI();
     bindEvents();
     renderHistory();
+    renderTappe();
 });
 
 /* ==========================================================================
    Mappa (Leaflet)
    ========================================================================== */
 function initMap() {
-    const defaultPos = [45.4642, 9.1900]; // Milano, come fallback iniziale
+    // Niguarda come punto di partenza
+    const defaultPos = [45.5180, 9.1940]; 
 
-    state.map = L.map('map', { zoomControl: false, attributionControl: true })
-        .setView(defaultPos, 16);
+    state.map = L.map('map', { 
+        zoomControl: false, 
+        attributionControl: true 
+    }).setView(defaultPos, state.mapZoom);
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap &copy; CARTO'
-    }).addTo(state.map);
+    updateMapThemeLayer();
 
     const customIcon = L.divIcon({
         className: 'custom-gps-marker',
@@ -134,17 +148,170 @@ function initMap() {
     });
 
     state.marker = L.marker(defaultPos, { icon: customIcon }).addTo(state.map);
+    renderTappeMarkers();
 }
 
+function updateMapThemeLayer() {
+    if (state.tileLayer) {
+        state.map.removeLayer(state.tileLayer);
+    }
+    
+    const darkUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+    const lightUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+    const activeUrl = state.mapTheme === 'dark' ? darkUrl : lightUrl;
+
+    state.tileLayer = L.tileLayer(activeUrl, {
+        maxZoom: 20,
+        attribution: '&copy; OpenStreetMap &copy; CARTO'
+    }).addTo(state.map);
+}
+
+// Quando il mapContainer ruota tramite CSS, dobbiamo ruotare il marker in direzione opposta
+// affinché la sua freccia punti sempre nella direzione corretta rispetto alla mappa stessa.
 function updateMarkerHeading(headingDeg) {
-    const arrow = state.marker?.getElement()?.querySelector('.gps-marker');
-    if (!arrow || headingDeg === null || Number.isNaN(headingDeg)) return;
-    arrow.style.transform = `rotate(${headingDeg}deg)`;
+    if (headingDeg === null || Number.isNaN(headingDeg)) return;
+    
+    if (state.mapRotate === 'on') {
+        el.mapContainer.style.transform = `rotate(${-headingDeg}deg)`;
+        // Se la mappa ruota, il marker graficamente punta sempre "su" fisso per l'utente,
+        // ma siccome è ancorato alla mappa che sta girando, non serve ruotarlo CSS internamente.
+        const arrow = state.marker?.getElement()?.querySelector('.gps-marker');
+        if (arrow) arrow.style.transform = `rotate(0deg)`;
+    } else {
+        el.mapContainer.style.transform = `rotate(0deg)`;
+        const arrow = state.marker?.getElement()?.querySelector('.gps-marker');
+        if (arrow) arrow.style.transform = `rotate(${headingDeg}deg)`;
+    }
 }
 
 /* ==========================================================================
-   Quadrante — costruito a runtime così i tick, l'arco e la lancetta
-   condividono sempre la stessa geometria (nessun numero duplicato a mano).
+   Gestione Impostazioni (Theme, Rotate, Zoom)
+   ========================================================================== */
+function applySettingsToUI() {
+    // Unità
+    const speedUnit = state.unit === 'km' ? 'km/h' : 'mph';
+    const distUnit = state.unit === 'km' ? 'km' : 'mi';
+    el.speedUnitLabel.textContent = speedUnit;
+    el.avgUnitLabel.textContent = speedUnit;
+    el.maxUnitLabel.textContent = speedUnit;
+    el.distUnitLabel.textContent = distUnit;
+    el.unitToggle.querySelectorAll('.segmented-option').forEach(btn => btn.classList.toggle('active', btn.dataset.unit === state.unit));
+    
+    // Tema
+    el.mapThemeToggle.querySelectorAll('.segmented-option').forEach(btn => btn.classList.toggle('active', btn.dataset.theme === state.mapTheme));
+    
+    // Rotazione
+    el.mapRotateToggle.querySelectorAll('.segmented-option').forEach(btn => btn.classList.toggle('active', btn.dataset.rotate === state.mapRotate));
+    if(state.mapRotate === 'off' && state.lastBearing !== null) updateMarkerHeading(state.lastBearing);
+    
+    // Zoom
+    el.mapZoomSlider.value = state.mapZoom;
+    el.zoomLevelDisplay.textContent = state.mapZoom;
+    if(state.map) state.map.setZoom(state.mapZoom);
+
+    refreshStatDisplays();
+}
+
+/* ==========================================================================
+   Tappe & Tempi
+   ========================================================================== */
+function saveCurrentLocationAsTappa() {
+    if (!state.lastPosition) {
+        alert("Attendi il fix del GPS per salvare una tappa.");
+        return;
+    }
+    const name = prompt("Inserisci il nome per questa Tappa:");
+    if (!name) return;
+
+    const newTappa = {
+        id: Date.now(),
+        name: name,
+        lat: state.lastPosition.latitude,
+        lng: state.lastPosition.longitude,
+        bestTime: null // Registreremo il miglior tempo in secondi
+    };
+
+    state.tappe.push(newTappa);
+    localStorage.setItem('ciclus_tappe', JSON.stringify(state.tappe));
+    renderTappe();
+    renderTappeMarkers();
+}
+
+function renderTappe() {
+    if (state.tappe.length === 0) {
+        el.tappeList.innerHTML = '<p class="empty-state">Nessuna tappa salvata. Aggiungi tappe per registrare i tempi di passaggio.</p>';
+        return;
+    }
+
+    el.tappeList.innerHTML = state.tappe.map((tappa, index) => {
+        const timeLabel = tappa.bestTime ? formatDuration(tappa.bestTime * 1000) : '--:--:--';
+        return `
+            <div class="history-item">
+                <div class="history-item-main">
+                    <span class="history-metrics">${tappa.name}</span>
+                    <span class="history-sub">Miglior Tempo (dalla partenza): ${timeLabel}</span>
+                </div>
+                <button class="history-delete" data-index="${index}" aria-label="Elimina tappa">
+                    <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0-1 13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 7h12Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+            </div>`;
+    }).join('');
+
+    el.tappeList.querySelectorAll('.history-delete').forEach(btn => {
+        btn.addEventListener('click', () => {
+            state.tappe.splice(Number(btn.dataset.index), 1);
+            localStorage.setItem('ciclus_tappe', JSON.stringify(state.tappe));
+            renderTappe();
+            renderTappeMarkers();
+        });
+    });
+}
+
+// Marker grafici sulla mappa per visualizzare i punti salvati
+let tappeLayerGroup = null;
+function renderTappeMarkers() {
+    if(!state.map) return;
+    if(tappeLayerGroup) state.map.removeLayer(tappeLayerGroup);
+    
+    tappeLayerGroup = L.layerGroup().addTo(state.map);
+    state.tappe.forEach(tappa => {
+        L.circleMarker([tappa.lat, tappa.lng], {
+            radius: 6,
+            color: 'var(--accent)',
+            fillColor: 'var(--void)',
+            fillOpacity: 1,
+            weight: 2
+        }).bindPopup(tappa.name).addTo(tappeLayerGroup);
+    });
+}
+
+function checkTappeProximity(currentLat, currentLng) {
+    if (!state.tracking || state.paused || state.movingTime < 10) return;
+
+    state.tappe.forEach(tappa => {
+        if (state.tappeRaggiunteCorrenti.includes(tappa.id)) return; // Già innescata in questa run
+
+        const distKm = haversineDistanceKm(currentLat, currentLng, tappa.lat, tappa.lng);
+        if (distKm <= TAPPA_PROXIMITY_RADIUS) {
+            // Tappa raggiunta!
+            state.tappeRaggiunteCorrenti.push(tappa.id);
+            
+            // Aggiorna Best Time
+            if (!tappa.bestTime || state.movingTime < tappa.bestTime) {
+                tappa.bestTime = state.movingTime;
+                localStorage.setItem('ciclus_tappe', JSON.stringify(state.tappe));
+                renderTappe();
+                
+                // Un piccolo alert visuale o sonoro sarebbe utile qui in futuro
+                console.log(`Nuovo Record su Tappa ${tappa.name}: ${formatDuration(state.movingTime*1000)}`);
+            }
+        }
+    });
+}
+
+
+/* ==========================================================================
+   Quadrante
    ========================================================================== */
 function polarPoint(cx, cy, r, angleDeg) {
     const rad = (angleDeg * Math.PI) / 180;
@@ -202,38 +369,14 @@ function updateGaugeVisual(speedKmh) {
 
     el.speedProgress.style.strokeDashoffset = arcLength - arcLength * percentage;
     el.speedNeedle.style.transform = `rotate(${DIAL_START_ANGLE + DIAL_SWEEP * percentage}deg)`;
-
-    // La barra vira verso l'ambra oltre l'80% del fondo scala, per un colpo
-    // d'occhio in più senza dover leggere il numero.
     el.speedProgress.style.stroke = percentage > 0.8 ? 'var(--warn)' : 'var(--accent)';
 }
 
 /* ==========================================================================
-   Unità di misura
+   Unità di misura e Statistiche
    ========================================================================== */
-function kmToDisplayDistance(km) {
-    return state.unit === 'km' ? km : km * 0.621371;
-}
-
-function kmhToDisplaySpeed(kmh) {
-    return state.unit === 'km' ? kmh : kmh * 0.621371;
-}
-
-function applyUnitToUI() {
-    const speedUnit = state.unit === 'km' ? 'km/h' : 'mph';
-    const distUnit = state.unit === 'km' ? 'km' : 'mi';
-
-    el.speedUnitLabel.textContent = speedUnit;
-    el.avgUnitLabel.textContent = speedUnit;
-    el.maxUnitLabel.textContent = speedUnit;
-    el.distUnitLabel.textContent = distUnit;
-
-    document.querySelectorAll('.segmented-option').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.unit === state.unit);
-    });
-
-    refreshStatDisplays();
-}
+function kmToDisplayDistance(km) { return state.unit === 'km' ? km : km * 0.621371; }
+function kmhToDisplaySpeed(kmh) { return state.unit === 'km' ? kmh : kmh * 0.621371; }
 
 function refreshStatDisplays() {
     el.distance.textContent = kmToDisplayDistance(state.totalDistance).toFixed(2);
@@ -257,6 +400,7 @@ function startTracking() {
 
     resetRideStats();
     requestWakeLock();
+    state.tappeRaggiunteCorrenti = []; // Resetta array tappe per la nuova corsa
 
     state.startTime = Date.now();
     state.timerInterval = setInterval(updateTimer, 1000);
@@ -282,7 +426,7 @@ function pauseTracking() {
 
 function resumeTracking() {
     state.paused = false;
-    state.lastPosition = null; // evita di calcolare distanza sul salto durante la pausa
+    state.lastPosition = null; 
     const options = { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 };
     state.watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, options);
     setGpsStatus('live', 'Acquisizione…');
@@ -323,9 +467,6 @@ function onPosition(position) {
     const coords = position.coords;
     const currentLatLng = [coords.latitude, coords.longitude];
 
-    // Direzione: preferiamo la bussola del dispositivo; se assente, la
-    // deriviamo dallo spostamento rispetto al fix precedente (richiede un
-    // minimo di moto reale per non "sfarfallare" per rumore GPS da fermi).
     let heading = typeof coords.heading === 'number' && !Number.isNaN(coords.heading) ? coords.heading : null;
     if (heading === null && state.lastPosition) {
         const movedKm = haversineDistanceKm(
@@ -339,20 +480,20 @@ function onPosition(position) {
             );
         }
     }
-    if (heading !== null) state.lastBearing = heading;
+    if (heading !== null) {
+        state.lastBearing = heading;
+        updateMarkerHeading(heading);
+    }
 
     if (state.map && state.marker) {
         state.map.panTo(currentLatLng, { animate: true, duration: 0.5 });
         state.marker.setLatLng(currentLatLng);
-        updateMarkerHeading(state.lastBearing);
     }
 
     updateGpsQuality(coords.accuracy);
     el.accuracy.textContent = coords.accuracy.toFixed(0);
     el.altitude.textContent = typeof coords.altitude === 'number' ? coords.altitude.toFixed(0) : '--';
 
-    // Velocità: preferiamo quella fornita dal GPS; se assente (comune su
-    // desktop o alcuni Android), la deriviamo dallo spostamento tra due fix.
     let speedKmh = typeof coords.speed === 'number' && coords.speed !== null
         ? coords.speed * 3.6
         : deriveSpeedFromFixes(coords, position.timestamp);
@@ -368,14 +509,11 @@ function onPosition(position) {
         el.maxSpeed.textContent = kmhToDisplaySpeed(state.maxSpeed).toFixed(1);
     }
 
-    // Un fix troppo impreciso gonfia la distanza con rumore: lo usiamo per
-    // orientare la mappa ma non per accumulare km.
     if (state.lastPosition && coords.accuracy <= MIN_ACCURACY_FOR_DISTANCE) {
         const dist = haversineDistanceKm(
             state.lastPosition.latitude, state.lastPosition.longitude,
             coords.latitude, coords.longitude
         );
-        // Scarta anche micro-spostamenti dovuti al solo jitter del GPS da fermo.
         if (dist > 0.001) {
             state.totalDistance += dist;
             el.distance.textContent = kmToDisplayDistance(state.totalDistance).toFixed(2);
@@ -384,6 +522,7 @@ function onPosition(position) {
 
     if (coords.accuracy <= MIN_ACCURACY_FOR_DISTANCE) {
         state.lastPosition = { latitude: coords.latitude, longitude: coords.longitude, timestamp: position.timestamp };
+        checkTappeProximity(coords.latitude, coords.longitude);
     }
 
     el.avgSpeed.textContent = kmhToDisplaySpeed(computeAverageSpeed()).toFixed(1);
@@ -403,7 +542,7 @@ function deriveSpeedFromFixes(coords, timestamp) {
 function onPositionError(err) {
     console.warn(`Errore GPS (${err.code}): ${err.message}`);
     if (err.code === err.PERMISSION_DENIED) {
-        setGpsStatus('poor', 'Permesso GPS negato');
+        setGpsStatus('poor', 'Permesso negato');
         stopTracking();
     } else {
         setGpsStatus('weak', 'Segnale debole');
@@ -426,15 +565,10 @@ function haversineDistanceKm(lat1, lon1, lat2, lon2) {
     const R = 6371;
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
     const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
     return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-// Direzione (0°=Nord, in senso orario) tra due punti — usata come fallback
-// per orientare il triangolo sulla mappa quando coords.heading non è
-// disponibile (comune quando il dispositivo è quasi fermo o non ha bussola).
 function computeBearingDeg(lat1, lon1, lat2, lon2) {
     const φ1 = (lat1 * Math.PI) / 180, φ2 = (lat2 * Math.PI) / 180;
     const Δλ = ((lon2 - lon1) * Math.PI) / 180;
@@ -444,7 +578,7 @@ function computeBearingDeg(lat1, lon1, lat2, lon2) {
 }
 
 /* ==========================================================================
-   Timer (esclude il tempo trascorso in pausa)
+   Timer 
    ========================================================================== */
 function updateTimer() {
     if (state.paused) return;
@@ -463,7 +597,7 @@ function formatDuration(ms) {
 }
 
 /* ==========================================================================
-   Controlli — Inizia / Pausa / Termina
+   Controlli & UI
    ========================================================================== */
 const ICON_PAUSE = '<rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/>';
 const ICON_PLAY = '<path d="M7 5.5v13l11-6.5-11-6.5Z" fill="currentColor"/>';
@@ -478,21 +612,14 @@ function setControlsMode(mode) {
         el.pauseBtn.classList.remove('hidden');
         el.stopBtn.classList.remove('hidden');
         el.pauseBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none">${ICON_PAUSE}</svg>`;
-        el.pauseBtn.setAttribute('aria-label', 'Pausa');
-        el.pauseBtn.setAttribute('title', 'Pausa');
     } else if (mode === 'paused') {
         el.startBtn.classList.add('hidden');
         el.pauseBtn.classList.remove('hidden');
         el.stopBtn.classList.remove('hidden');
         el.pauseBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none">${ICON_PLAY}</svg>`;
-        el.pauseBtn.setAttribute('aria-label', 'Riprendi');
-        el.pauseBtn.setAttribute('title', 'Riprendi');
     }
 }
 
-/* ==========================================================================
-   Riepilogo e cronologia corse (localStorage)
-   ========================================================================== */
 const HISTORY_KEY = 'ciclus_rides';
 
 function openRideSummary() {
@@ -503,18 +630,15 @@ function openRideSummary() {
         maxSpeedKmh: state.maxSpeed,
         avgSpeedKmh: computeAverageSpeed(),
     };
-
     el.sumDistance.textContent = `${kmToDisplayDistance(pendingRide.distanceKm).toFixed(2)} ${state.unit === 'km' ? 'km' : 'mi'}`;
     el.sumTime.textContent = formatDuration(pendingRide.movingTimeSec * 1000);
     el.sumAvg.textContent = `${kmhToDisplaySpeed(pendingRide.avgSpeedKmh).toFixed(1)} ${state.unit === 'km' ? 'km/h' : 'mph'}`;
     el.sumMax.textContent = `${kmhToDisplaySpeed(pendingRide.maxSpeedKmh).toFixed(1)} ${state.unit === 'km' ? 'km/h' : 'mph'}`;
 
-    // Corse troppo brevi non vale la pena proporle per il salvataggio.
     if (pendingRide.distanceKm < 0.05 && pendingRide.movingTimeSec < 30) {
         pendingRide = null;
         return;
     }
-
     el.summaryModal.classList.add('open');
     el.summaryModal.setAttribute('aria-hidden', 'false');
 }
@@ -535,20 +659,15 @@ function saveRide() {
 }
 
 function loadRides() {
-    try {
-        return JSON.parse(localStorage.getItem(HISTORY_KEY)) || [];
-    } catch {
-        return [];
-    }
+    try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }
 }
 
 function renderHistory() {
     const rides = loadRides();
     if (rides.length === 0) {
-        el.historyList.innerHTML = '<p class="empty-state">Nessuna corsa salvata ancora. Le corse completate compariranno qui.</p>';
+        el.historyList.innerHTML = '<p class="empty-state">Nessuna corsa salvata ancora.</p>';
         return;
     }
-
     el.historyList.innerHTML = rides.map((ride, index) => {
         const dateLabel = new Date(ride.date).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
         const dist = kmToDisplayDistance(ride.distanceKm).toFixed(2);
@@ -562,12 +681,11 @@ function renderHistory() {
                     <span class="history-metrics">${dist} ${distUnit}</span>
                     <span class="history-sub">${time} · media ${avg} ${state.unit === 'km' ? 'km/h' : 'mph'}</span>
                 </div>
-                <button class="history-delete" data-index="${index}" aria-label="Elimina corsa">
+                <button class="history-delete" data-index="${index}">
                     <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0-1 13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 7h12Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </button>
             </div>`;
     }).join('');
-
     el.historyList.querySelectorAll('.history-delete').forEach(btn => {
         btn.addEventListener('click', () => {
             const rides = loadRides();
@@ -578,9 +696,6 @@ function renderHistory() {
     });
 }
 
-/* ==========================================================================
-   Pannelli (sheet) e modali
-   ========================================================================== */
 function openSheet(panel) {
     el.scrim.classList.add('visible');
     panel.classList.add('open');
@@ -593,50 +708,35 @@ function closeSheet(panel) {
     panel.setAttribute('aria-hidden', 'true');
 }
 
-/* ==========================================================================
-   Wake Lock — evita che lo schermo si spenga durante la corsa
-   ========================================================================== */
 async function requestWakeLock() {
     try {
-        if ('wakeLock' in navigator) {
-            state.wakeLock = await navigator.wakeLock.request('screen');
-        }
-    } catch (err) {
-        console.warn(`WakeLock non disponibile: ${err.message}`);
-    }
+        if ('wakeLock' in navigator) state.wakeLock = await navigator.wakeLock.request('screen');
+    } catch (err) { console.warn(`WakeLock non disponibile: ${err.message}`); }
 }
 
 function releaseWakeLock() {
-    if (state.wakeLock) {
-        state.wakeLock.release().then(() => { state.wakeLock = null; });
-    }
+    if (state.wakeLock) state.wakeLock.release().then(() => { state.wakeLock = null; });
 }
 
 document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && state.tracking && !state.paused && !state.wakeLock) {
-        requestWakeLock();
-    }
+    if (document.visibilityState === 'visible' && state.tracking && !state.paused && !state.wakeLock) requestWakeLock();
 });
 
 /* ==========================================================================
-   Collegamento eventi
+   Collegamento Eventi 
    ========================================================================== */
 function bindEvents() {
     el.startBtn.addEventListener('click', startTracking);
-
-    el.pauseBtn.addEventListener('click', () => {
-        if (state.paused) resumeTracking();
-        else pauseTracking();
-    });
-
+    el.pauseBtn.addEventListener('click', () => { state.paused ? resumeTracking() : pauseTracking(); });
     el.stopBtn.addEventListener('click', stopTracking);
 
     el.historyBtn.addEventListener('click', () => { renderHistory(); openSheet(el.historyPanel); });
     el.closeHistoryBtn.addEventListener('click', () => closeSheet(el.historyPanel));
-    el.clearHistoryBtn.addEventListener('click', () => {
-        localStorage.removeItem(HISTORY_KEY);
-        renderHistory();
-    });
+    el.clearHistoryBtn.addEventListener('click', () => { localStorage.removeItem(HISTORY_KEY); renderHistory(); });
+
+    el.tappeBtn.addEventListener('click', () => { renderTappe(); openSheet(el.tappePanel); });
+    el.closeTappeBtn.addEventListener('click', () => closeSheet(el.tappePanel));
+    el.addTappaBtn.addEventListener('click', saveCurrentLocationAsTappa);
 
     el.settingsBtn.addEventListener('click', () => openSheet(el.settingsPanel));
     el.closeSettingsBtn.addEventListener('click', () => closeSheet(el.settingsPanel));
@@ -645,13 +745,37 @@ function bindEvents() {
         btn.addEventListener('click', () => {
             state.unit = btn.dataset.unit;
             localStorage.setItem('ciclus_unit', state.unit);
-            applyUnitToUI();
+            applySettingsToUI();
         });
+    });
+
+    el.mapThemeToggle.querySelectorAll('.segmented-option').forEach(btn => {
+        btn.addEventListener('click', () => {
+            state.mapTheme = btn.dataset.theme;
+            localStorage.setItem('ciclus_theme', state.mapTheme);
+            updateMapThemeLayer();
+            applySettingsToUI();
+        });
+    });
+
+    el.mapRotateToggle.querySelectorAll('.segmented-option').forEach(btn => {
+        btn.addEventListener('click', () => {
+            state.mapRotate = btn.dataset.rotate;
+            localStorage.setItem('ciclus_rotate', state.mapRotate);
+            applySettingsToUI();
+        });
+    });
+
+    el.mapZoomSlider.addEventListener('input', (e) => {
+        state.mapZoom = parseInt(e.target.value);
+        localStorage.setItem('ciclus_zoom', state.mapZoom);
+        applySettingsToUI();
     });
 
     el.scrim.addEventListener('click', () => {
         closeSheet(el.historyPanel);
         closeSheet(el.settingsPanel);
+        closeSheet(el.tappePanel);
     });
 
     el.discardRideBtn.addEventListener('click', closeRideSummary);
