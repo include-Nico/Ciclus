@@ -37,6 +37,18 @@ const state = {
     map: null,
     marker: null,
     headingEl: null,
+
+    playlist: [],           // { id, title, url, type: 'track' | 'radio' }
+    currentTrackIndex: -1,
+    isPlaying: false,
+};
+
+// Stazioni radio libere di SomaFM (servizio pensato per essere incorporato
+// liberamente), proposte come scorciatoia rapida nel pannello Musica.
+const RADIO_PRESETS = {
+    groove: { title: 'Groove Salad — SomaFM', url: 'https://ice1.somafm.com/groovesalad-128-mp3', type: 'radio' },
+    beatblender: { title: 'Beat Blender — SomaFM', url: 'https://ice1.somafm.com/beatblender-128-mp3', type: 'radio' },
+    secretagent: { title: 'Secret Agent — SomaFM', url: 'https://ice1.somafm.com/secretagent-128-mp3', type: 'radio' },
 };
 
 /* ==========================================================================
@@ -89,6 +101,23 @@ const el = {
     sumMax: document.getElementById('sumMax'),
     discardRideBtn: document.getElementById('discardRideBtn'),
     saveRideBtn: document.getElementById('saveRideBtn'),
+
+    audioPlayer: document.getElementById('audioPlayer'),
+    musicBanner: document.getElementById('musicBanner'),
+    musicToggleBtn: document.getElementById('musicToggleBtn'),
+    musicInfoBtn: document.getElementById('musicInfoBtn'),
+    musicPrevBtn: document.getElementById('musicPrevBtn'),
+    musicPlayBtn: document.getElementById('musicPlayBtn'),
+    musicNextBtn: document.getElementById('musicNextBtn'),
+    musicTitle: document.getElementById('musicTitle'),
+    musicSub: document.getElementById('musicSub'),
+    musicPanel: document.getElementById('musicPanel'),
+    closeMusicBtn: document.getElementById('closeMusicBtn'),
+    musicPlaylist: document.getElementById('musicPlaylist'),
+    radioPresets: document.getElementById('radioPresets'),
+    addTrackForm: document.getElementById('addTrackForm'),
+    trackTitleInput: document.getElementById('trackTitleInput'),
+    trackUrlInput: document.getElementById('trackUrlInput'),
 };
 
 let pendingRide = null; // dati dell'ultima corsa in attesa di salvataggio/scarto
@@ -110,6 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
     applyUnitToUI();
     bindEvents();
     renderHistory();
+    initMusicPlayer();
 });
 
 /* ==========================================================================
@@ -619,6 +649,203 @@ document.addEventListener('visibilitychange', () => {
 });
 
 /* ==========================================================================
+   Musica — playlist personale (brani o stream radio) con controlli reali
+   sulla lock screen tramite la Media Session API. Un sito web non può
+   controllare la musica di altre app (Spotify, Apple Music, ecc.): qui
+   l'audio è riprodotto direttamente da Ciclus, quindi il sistema operativo
+   può davvero mostrare titolo e pulsanti play/pausa/avanti/indietro anche
+   a schermo bloccato o con l'app in background.
+   ========================================================================== */
+const MUSIC_KEY = 'ciclus_playlist';
+
+function initMusicPlayer() {
+    state.playlist = loadPlaylist();
+    renderMusicPlaylistPanel();
+    updateMusicBannerUI();
+    setupMediaSessionHandlers();
+
+    el.audioPlayer.addEventListener('play', () => {
+        state.isPlaying = true;
+        updateMusicBannerUI();
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    });
+
+    el.audioPlayer.addEventListener('pause', () => {
+        state.isPlaying = false;
+        updateMusicBannerUI();
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    });
+
+    el.audioPlayer.addEventListener('ended', () => nextTrack());
+
+    el.audioPlayer.addEventListener('error', () => {
+        if (state.playlist.length === 0) return;
+        el.musicSub.textContent = 'Impossibile riprodurre questa traccia';
+    });
+}
+
+function loadPlaylist() {
+    try {
+        return JSON.parse(localStorage.getItem(MUSIC_KEY)) || [];
+    } catch {
+        return [];
+    }
+}
+
+function savePlaylist() {
+    localStorage.setItem(MUSIC_KEY, JSON.stringify(state.playlist));
+}
+
+function addTrack(title, url, type = 'track') {
+    state.playlist.push({ id: `${Date.now()}`, title, url, type });
+    savePlaylist();
+    renderMusicPlaylistPanel();
+    // Se non c'era ancora nulla in coda, avvia subito il brano appena aggiunto.
+    if (state.currentTrackIndex === -1) {
+        playTrackAtIndex(state.playlist.length - 1);
+    }
+}
+
+function removeTrack(index) {
+    const wasCurrentlyPlaying = index === state.currentTrackIndex;
+    state.playlist.splice(index, 1);
+    savePlaylist();
+
+    if (state.playlist.length === 0) {
+        state.currentTrackIndex = -1;
+        el.audioPlayer.pause();
+        el.audioPlayer.removeAttribute('src');
+    } else if (wasCurrentlyPlaying) {
+        playTrackAtIndex(Math.min(index, state.playlist.length - 1));
+    } else if (index < state.currentTrackIndex) {
+        state.currentTrackIndex -= 1;
+    }
+
+    renderMusicPlaylistPanel();
+    updateMusicBannerUI();
+}
+
+function playTrackAtIndex(index) {
+    const track = state.playlist[index];
+    if (!track) return;
+
+    state.currentTrackIndex = index;
+    el.audioPlayer.src = track.url;
+    el.audioPlayer.loop = state.playlist.length === 1;
+
+    const playPromise = el.audioPlayer.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {
+            // L'autoplay può essere bloccato dal browser: l'utente dovrà
+            // toccare di nuovo play, cosa normale sui browser mobile.
+            state.isPlaying = false;
+            updateMusicBannerUI();
+        });
+    }
+
+    updateMediaSessionMetadata(track);
+    renderMusicPlaylistPanel();
+    updateMusicBannerUI();
+}
+
+function togglePlayPause() {
+    if (state.playlist.length === 0) {
+        openSheet(el.musicPanel);
+        return;
+    }
+    if (state.currentTrackIndex === -1) {
+        playTrackAtIndex(0);
+        return;
+    }
+    if (el.audioPlayer.paused) {
+        el.audioPlayer.play().catch(() => {});
+    } else {
+        el.audioPlayer.pause();
+    }
+}
+
+function nextTrack() {
+    if (state.playlist.length === 0) return;
+    const next = (state.currentTrackIndex + 1) % state.playlist.length;
+    playTrackAtIndex(next);
+}
+
+function prevTrack() {
+    if (state.playlist.length === 0) return;
+    const prev = (state.currentTrackIndex - 1 + state.playlist.length) % state.playlist.length;
+    playTrackAtIndex(prev);
+}
+
+function updateMusicBannerUI() {
+    const track = state.playlist[state.currentTrackIndex];
+
+    if (!track) {
+        el.musicTitle.textContent = 'Nessuna musica';
+        el.musicSub.textContent = 'Tocca per aggiungerne';
+    } else {
+        el.musicTitle.textContent = track.title;
+        el.musicSub.textContent = track.type === 'radio' ? 'Radio in diretta' : 'In riproduzione da Ciclus';
+    }
+
+    el.musicPlayBtn.innerHTML = state.isPlaying
+        ? `<svg viewBox="0 0 24 24" fill="none">${ICON_PAUSE}</svg>`
+        : `<svg viewBox="0 0 24 24" fill="none">${ICON_PLAY}</svg>`;
+    el.musicPlayBtn.setAttribute('aria-label', state.isPlaying ? 'Pausa' : 'Riproduci');
+}
+
+// Espone titolo/artista e pulsanti play-pausa-avanti-indietro al sistema
+// operativo (notifica media, lock screen, cuffie bluetooth…). Funziona solo
+// per l'audio riprodotto qui: nessun sito può agganciarsi ad app esterne.
+function setupMediaSessionHandlers() {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.setActionHandler('play', () => el.audioPlayer.play().catch(() => {}));
+    navigator.mediaSession.setActionHandler('pause', () => el.audioPlayer.pause());
+    navigator.mediaSession.setActionHandler('previoustrack', prevTrack);
+    navigator.mediaSession.setActionHandler('nexttrack', nextTrack);
+}
+
+function updateMediaSessionMetadata(track) {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+        title: track.title,
+        artist: track.type === 'radio' ? 'Radio in diretta' : 'Ciclus',
+        album: 'Ciclus — Ciclocomputer GPS',
+        artwork: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml' }],
+    });
+}
+
+function renderMusicPlaylistPanel() {
+    if (state.playlist.length === 0) {
+        el.musicPlaylist.innerHTML = '<p class="empty-state">Nessun brano in playlist. Aggiungi una traccia o uno stream qui sotto.</p>';
+        return;
+    }
+
+    el.musicPlaylist.innerHTML = state.playlist.map((track, index) => `
+        <div class="music-playlist-item ${index === state.currentTrackIndex ? 'active' : ''}">
+            <button class="music-playlist-item-main" data-play-index="${index}">
+                <span class="music-playlist-item-title">${escapeHtml(track.title)}</span>
+                <span class="music-playlist-item-type">${track.type === 'radio' ? 'Radio' : 'Brano'}</span>
+            </button>
+            <button class="history-delete" data-remove-index="${index}" aria-label="Rimuovi dalla playlist">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0-1 13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 7h12Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+        </div>`).join('');
+
+    el.musicPlaylist.querySelectorAll('[data-play-index]').forEach(btn => {
+        btn.addEventListener('click', () => playTrackAtIndex(Number(btn.dataset.playIndex)));
+    });
+    el.musicPlaylist.querySelectorAll('[data-remove-index]').forEach(btn => {
+        btn.addEventListener('click', () => removeTrack(Number(btn.dataset.removeIndex)));
+    });
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+/* ==========================================================================
    Collegamento eventi
    ========================================================================== */
 function bindEvents() {
@@ -652,8 +879,32 @@ function bindEvents() {
     el.scrim.addEventListener('click', () => {
         closeSheet(el.historyPanel);
         closeSheet(el.settingsPanel);
+        closeSheet(el.musicPanel);
     });
 
     el.discardRideBtn.addEventListener('click', closeRideSummary);
     el.saveRideBtn.addEventListener('click', saveRide);
+
+    el.musicPlayBtn.addEventListener('click', togglePlayPause);
+    el.musicPrevBtn.addEventListener('click', prevTrack);
+    el.musicNextBtn.addEventListener('click', nextTrack);
+    el.musicInfoBtn.addEventListener('click', () => openSheet(el.musicPanel));
+    el.musicToggleBtn.addEventListener('click', () => openSheet(el.musicPanel));
+    el.closeMusicBtn.addEventListener('click', () => closeSheet(el.musicPanel));
+
+    el.radioPresets.querySelectorAll('.preset-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const preset = RADIO_PRESETS[chip.dataset.preset];
+            if (preset) addTrack(preset.title, preset.url, preset.type);
+        });
+    });
+
+    el.addTrackForm.addEventListener('submit', (evt) => {
+        evt.preventDefault();
+        const title = el.trackTitleInput.value.trim();
+        const url = el.trackUrlInput.value.trim();
+        if (!title || !url) return;
+        addTrack(title, url, 'track');
+        el.addTrackForm.reset();
+    });
 }
