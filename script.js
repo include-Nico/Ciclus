@@ -10,6 +10,7 @@ const GAUGE_RADIUS = 100;
 const MIN_ACCURACY_FOR_DISTANCE = 30; 
 const MIN_SPEED_THRESHOLD = 0.8;      
 const TAPPA_PROXIMITY_RADIUS = 0.03; // In km (circa 30 metri per attivare il check)
+const SPEED_DEBOUNCE_MS = 4000;      // Millisecondi per mascherare i cali del segnale GPS
 
 const state = {
     tracking: false,
@@ -29,6 +30,7 @@ const state = {
 
     lastPosition: null,     
     lastAcceptedSpeed: 0,
+    lastValidSpeedTime: null, // Timestamp dell'ultimo segnale di velocità valido
     lastBearing: null,      
 
     startTime: null,
@@ -530,7 +532,8 @@ function resetRideStats() {
     state.totalDistance = 0; 
     state.movingTime = 0; 
     state.lastPosition = null; 
-    state.lastAcceptedSpeed = 0; 
+    state.lastAcceptedSpeed = 0;
+    state.lastValidSpeedTime = null;
     state.lastBearing = null;
     
     refreshStatDisplays(); 
@@ -564,15 +567,29 @@ function onPosition(position) {
     el.accuracy.textContent = coords.accuracy.toFixed(0); 
     el.altitude.textContent = typeof coords.altitude === 'number' ? coords.altitude.toFixed(0) : '--';
     
+    // Calcolo della velocità attuale
     let speedKmh = typeof coords.speed === 'number' && coords.speed !== null 
         ? coords.speed * 3.6 
         : deriveSpeedFromFixes(coords, position.timestamp);
         
-    if (speedKmh < MIN_SPEED_THRESHOLD) {
-        speedKmh = 0;
+    // --- FILTRO DI SMOOTHING (DEBOUNCE) PER LA VELOCITÀ ---
+    if (speedKmh >= MIN_SPEED_THRESHOLD) {
+        // Velocità valida registrata normalmente
+        state.lastAcceptedSpeed = speedKmh;
+        state.lastValidSpeedTime = Date.now();
+    } else {
+        // Se la velocità scende sotto soglia (0), controlliamo da quanto tempo
+        // Se è passato poco tempo dall'ultimo segnale valido (es. meno di 4 secondi)
+        // manteniamo a display l'ultima velocità per mascherare il calo del GPS
+        if (state.lastValidSpeedTime && (Date.now() - state.lastValidSpeedTime < SPEED_DEBOUNCE_MS)) {
+            speedKmh = state.lastAcceptedSpeed;
+        } else {
+            // Effettivamente fermo da oltre 4 secondi
+            speedKmh = 0;
+            state.lastAcceptedSpeed = 0;
+        }
     }
     
-    state.lastAcceptedSpeed = speedKmh; 
     el.currentSpeed.textContent = kmhToDisplaySpeed(speedKmh).toFixed(1); 
     updateGaugeVisual(speedKmh);
     
