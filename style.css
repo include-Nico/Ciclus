@@ -538,3 +538,173 @@ input[type="range"] { accent-color: var(--accent); }
     .status-dot.live, .rec-dot { animation: none; }
     .needle-group, .gauge-progress, .glass-btn, .sheet, .modal, .modal-card { transition: none; }
 }
+
+/* ==========================================================================
+   CICLUS — Design tokens
+   ========================================================================== */
+   :root {
+    --void: #08090b;
+    --panel: #121317;
+    --panel-glass: rgba(16, 18, 21, 0.72);
+    --panel-raised: rgba(255, 255, 255, 0.05);
+    --line: rgba(255, 255, 255, 0.09);
+    --line-soft: rgba(255, 255, 255, 0.05);
+
+    --text-primary: #F4F6F8;
+    --text-muted: #8B93A0;
+    --text-faint: #5B6270;
+
+    --accent: #C6FF3D;
+    --accent-dim: #9ED92F;
+    --accent-soft: rgba(198, 255, 61, 0.14);
+    --accent-glow: rgba(198, 255, 61, 0.45);
+
+    --danger: #FF5A5A;
+    --danger-soft: rgba(255, 90, 90, 0.16);
+
+    --warn: #FFC65A;
+
+    --radius-lg: 28px;
+    --radius-md: 18px;
+    --radius-sm: 12px;
+
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+    --font-ui: 'Space Grotesk', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: var(--font-ui); -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; width: 100%; overflow: hidden; background-color: var(--void); color: var(--text-primary); user-select: none; -webkit-user-select: none; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+.hidden { display: none !important; }
+
+/* Barra statistiche */
+.stats-bar { position: absolute; top: calc(64px + var(--safe-top)); left: 16px; right: 16px; z-index: 850; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.stat-chip { background: var(--panel-glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--line); border-radius: 14px; padding: 8px 6px; text-align: center; }
+.stat-chip-minor { grid-column: span 2; padding: 5px 6px; opacity: 0.85; }
+.stat-value-minor { font-size: 0.85rem !important; }
+@media (min-width: 460px) { .stats-bar { grid-template-columns: repeat(6, 1fr); } .stat-chip-minor { grid-column: span 1; } }
+
+/* Mappa */
+#map-container { position: absolute; width: 150vw; height: 150vh; top: -25vh; left: -25vw; z-index: 1; transform-origin: center center; transition: transform 0.3s linear; will-change: transform; }
+#map { height: 100%; width: 100%; filter: saturate(0.85) brightness(0.95); }
+.leaflet-control-attribution { background: rgba(0, 0, 0, 0.55) !important; color: rgba(255, 255, 255, 0.45) !important; font-size: 8px !important; }
+
+/* Marker GPS */
+.custom-gps-marker { display: flex; align-items: center; justify-content: center; }
+.gps-marker-halo { position: absolute; width: 40px; height: 40px; border-radius: 50%; background: radial-gradient(circle, rgba(198, 255, 61, 0.22) 0%, rgba(198, 255, 61, 0) 70%); }
+.gps-marker { position: relative; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; transform-origin: 50% 50%; }
+.gps-triangle { width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 20px solid var(--accent); filter: drop-shadow(0 0 4px var(--accent-glow)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5)); }
+
+/* Emoji Marker Leaflet */
+.emoji-map-marker {
+    font-size: 26px;
+    line-height: 1;
+    text-align: center;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.6));
+    transition: transform 0.2s ease;
+}
+
+/* Status bar */
+.status-bar { position: absolute; top: calc(16px + var(--safe-top)); left: 16px; right: 16px; z-index: 900; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.status-pill { display: flex; align-items: center; gap: 8px; padding: 9px 14px; background: var(--panel-glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--line); border-radius: 999px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.03em; color: var(--text-muted); }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); flex-shrink: 0; transition: background 0.3s ease, box-shadow 0.3s ease; }
+.status-dot.live { background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); animation: pulse-dot 1.6s ease-in-out infinite; }
+.status-dot.weak { background: var(--warn); box-shadow: 0 0 8px rgba(255, 198, 90, 0.5); }
+.status-dot.poor { background: var(--danger); box-shadow: 0 0 8px rgba(255, 90, 90, 0.5); }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+.status-actions { display: flex; gap: 8px; }
+.icon-btn { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; background: var(--panel-glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--line); border-radius: 50%; color: var(--text-primary); transition: transform 0.15s ease, background 0.2s ease; }
+.icon-btn svg { width: 18px; height: 18px; }
+.icon-btn:active { transform: scale(0.92); background: rgba(255, 255, 255, 0.12); }
+
+/* Cockpit & Speedometer */
+.speedo-dock { position: absolute; bottom: calc(18px + var(--safe-bottom)); left: 50%; transform: translateX(-50%); width: 232px; height: 232px; z-index: 800; background: var(--panel-glass); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid var(--line); border-radius: 50%; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; }
+.speedometer-wrapper { position: relative; width: 200px; height: 200px; display: flex; align-items: center; justify-content: center; }
+.speed-gauge { position: absolute; inset: 0; width: 100%; height: 100%; filter: drop-shadow(0 0 10px rgba(198, 255, 61, 0.18)); }
+.gauge-track { stroke: rgba(255, 255, 255, 0.06); stroke-width: 14; stroke-linecap: round; }
+.gauge-progress { stroke: var(--accent); stroke-width: 14; stroke-linecap: round; transition: stroke-dashoffset 0.4s ease-out, stroke 0.3s ease; }
+.tick-major { stroke: rgba(255, 255, 255, 0.55); stroke-width: 2.5; }
+.tick-minor { stroke: rgba(255, 255, 255, 0.22); stroke-width: 1.5; }
+.tick-label { fill: var(--text-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; text-anchor: middle; dominant-baseline: middle; }
+.needle-group { transform-origin: 120px 120px; transform: rotate(-135deg); transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1); }
+.needle { fill: var(--danger); }
+.needle-hub { fill: #0c0d10; stroke: var(--danger); stroke-width: 3; }
+.speed-digital { position: absolute; top: 56%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; }
+#currentSpeed { font-family: var(--font-mono); font-size: 2.7rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; text-shadow: 0 0 18px rgba(198, 255, 61, 0.25); }
+.unit { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.12em; }
+.rec-indicator { position: absolute; top: 8px; right: 4px; display: flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 0.65rem; font-weight: 700; letter-spacing: 0.08em; color: var(--danger); opacity: 0; transition: opacity 0.3s ease; }
+.rec-indicator.active { opacity: 1; }
+.rec-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); animation: pulse-dot 1.3s ease-in-out infinite; }
+.stat-label { display: block; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 4px; }
+.stat-value { font-family: var(--font-mono); font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.unit-small { font-family: var(--font-ui); font-size: 0.68rem; font-weight: 500; color: var(--text-muted); }
+
+/* Controlli */
+.ride-controls { position: absolute; bottom: calc(18px + 232px + 14px + var(--safe-bottom)); left: 50%; transform: translateX(-50%); z-index: 800; display: flex; gap: 10px; padding: 6px; background: var(--panel-glass); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); }
+.dock-btn { width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--text-primary); background: rgba(255, 255, 255, 0.06); transition: transform 0.15s ease, background 0.2s ease; }
+.dock-btn svg { width: 20px; height: 20px; }
+.dock-btn:active { transform: scale(0.92); }
+.dock-btn-start { background: var(--accent); color: #0b0c0e; }
+.dock-btn-start:active { background: var(--accent-dim); }
+.dock-btn-stop { background: var(--danger-soft); color: var(--danger); }
+.glass-btn { flex: 1; padding: 13px 10px; border-radius: 14px; border: 1px solid var(--line); font-size: 0.85rem; font-weight: 700; letter-spacing: 0.02em; transition: transform 0.15s ease, background 0.2s ease; cursor: pointer;}
+.glass-btn:active { transform: scale(0.97); }
+.glass-btn.primary { background: var(--accent); color: #0b0c0e; border-color: var(--accent); }
+.glass-btn.primary:active { background: var(--accent-dim); }
+.glass-btn.ghost { background: rgba(255, 255, 255, 0.06); color: var(--text-primary); }
+.glass-btn.danger { background: var(--danger-soft); color: var(--danger); border-color: rgba(255, 90, 90, 0.35); }
+
+/* Input custom */
+.glass-input { width: 100%; background: var(--panel-raised); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; color: var(--text-primary); font-size: 1rem; margin-bottom: 20px; outline: none; transition: border-color 0.2s; }
+.glass-input:focus { border-color: var(--accent); }
+.glass-input::placeholder { color: var(--text-faint); }
+
+/* Emoji Picker Grid */
+.emoji-picker { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.emoji-option { background: var(--panel-raised); border: 1px solid var(--line-soft); border-radius: 12px; padding: 12px 0; font-size: 1.5rem; text-align: center; transition: all 0.2s; }
+.emoji-option.active { background: var(--accent-soft); border-color: var(--accent); transform: scale(1.05); }
+
+/* Pannelli & Sheet */
+.scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); z-index: 950; opacity: 0; pointer-events: none; transition: opacity 0.25s ease; }
+.scrim.visible { opacity: 1; pointer-events: auto; }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 960; max-height: 78vh; background: #121317; border: 1px solid var(--line); border-bottom: none; border-radius: 26px 26px 0 0; padding: 10px 20px calc(24px + var(--safe-bottom)); transform: translateY(100%); transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1); overflow-y: auto; box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.5); }
+.sheet.open { transform: translateY(0); }
+.sheet-handle { width: 40px; height: 4px; border-radius: 4px; background: var(--line); margin: 8px auto 14px; }
+.sheet-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.sheet-header h2 { font-size: 1.05rem; font-weight: 700; }
+.empty-state { color: var(--text-faint); font-size: 0.85rem; padding: 30px 0; text-align: center; line-height: 1.5; }
+.history-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.history-item { display: flex; align-items: center; justify-content: space-between; background: var(--panel-raised); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 12px 14px; }
+.history-item-main { display: flex; flex-direction: column; gap: 3px; }
+.history-date { font-size: 0.72rem; color: var(--text-faint); }
+.history-metrics { font-family: var(--font-mono); font-size: 0.9rem; font-weight: 700; }
+.history-sub { font-size: 0.72rem; color: var(--text-muted); }
+.history-delete { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: var(--text-faint); border-radius: 50%; }
+.history-delete:active { background: var(--danger-soft); color: var(--danger); }
+.history-delete svg { width: 16px; height: 16px; }
+.text-btn { width: 100%; text-align: center; padding: 12px; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
+.text-btn.danger { color: var(--danger); }
+.setting-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--line-soft); font-size: 0.9rem; }
+.segmented { display: flex; background: var(--panel-raised); border-radius: 10px; padding: 3px; gap: 3px; }
+.segmented-option { padding: 7px 14px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; color: var(--text-muted); }
+.segmented-option.active { background: var(--accent); color: #0b0c0e; }
+.segmented-info { font-size: 0.76rem; color: var(--text-faint); padding: 7px 4px; }
+input[type="range"] { accent-color: var(--accent); }
+
+/* Modali Centro Pagina */
+.modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.6); opacity: 0; pointer-events: none; transition: opacity 0.25s ease; padding: 20px; backdrop-filter: blur(4px); }
+.modal.open { opacity: 1; pointer-events: auto; }
+.modal-card { width: 100%; max-width: 360px; background: #14161a; border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 26px; transform: scale(0.94); transition: transform 0.25s ease; box-shadow: 0 20px 40px rgba(0,0,0,0.8); }
+.modal.open .modal-card { transform: scale(1); }
+.modal-card h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: 4px; text-align: center; }
+.summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 22px; }
+.summary-item { background: var(--panel-raised); border-radius: var(--radius-sm); padding: 12px; text-align: center; border: 1px solid var(--line-soft); }
+.summary-item strong { display: block; font-family: var(--font-mono); font-size: 1.1rem; margin-top: 4px; }
+.modal-actions { display: flex; gap: 10px; }
+
+/* Responsive */
+@media (max-width: 380px) { .speedometer-wrapper { width: 176px; height: 176px; } #currentSpeed { font-size: 2.3rem; } .speedo-dock { width: 208px; height: 208px; } .ride-controls { bottom: calc(18px + 208px + 14px + var(--safe-bottom)); } .stats-bar { grid-template-columns: 1fr 1fr; } .stat-chip-minor { grid-column: span 1; } }
+@media (prefers-reduced-motion: reduce) { .status-dot.live, .rec-dot { animation: none; } .needle-group, .gauge-progress, .glass-btn, .sheet, .modal, .modal-card { transition: none; } }

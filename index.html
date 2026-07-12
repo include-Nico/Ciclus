@@ -90,7 +90,7 @@
             <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </button>
     </div>
-    <button id="addTappaBtn" class="glass-btn primary" style="width:100%; margin-bottom:15px;">Salva Posizione Attuale come Tappa</button>
+    <button id="triggerAddTappaBtn" class="glass-btn primary" style="width:100%; margin-bottom:15px;">Salva Posizione Attuale come Tappa</button>
     <div id="tappeList" class="history-list">
         <p class="empty-state">Nessuna tappa salvata. Aggiungi tappe per registrare i tempi di passaggio.</p>
     </div>
@@ -148,15 +148,35 @@
             <button class="segmented-option" data-unit="mi">mph</button>
         </div>
     </div>
-    <div class="setting-row">
-        <span>Mantieni schermo attivo</span>
-        <div class="segmented" id="wakeLockStatus">
-            <span class="segmented-info" id="wakeLockText">automatico durante la corsa</span>
-        </div>
-    </div>
 </aside>
 
 <div class="scrim" id="scrim"></div>
+
+<!-- Modale Creazione Tappa con Emoji -->
+<div id="addTappaModal" class="modal" aria-hidden="true">
+    <div class="modal-card">
+        <h2>Nuova Tappa</h2>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 15px; text-align: center;">Identifica la tua posizione attuale.</p>
+        
+        <input type="text" id="tappaNameInput" placeholder="Es. Casa, Lavoro..." class="glass-input" autocomplete="off">
+        
+        <div class="emoji-picker" id="emojiPicker">
+            <button class="emoji-option active" data-emoji="📍">📍</button>
+            <button class="emoji-option" data-emoji="🏠">🏠</button>
+            <button class="emoji-option" data-emoji="🎓">🎓</button>
+            <button class="emoji-option" data-emoji="🏋️‍♂️">🏋️‍♂️</button>
+            <button class="emoji-option" data-emoji="🥋">🥋</button>
+            <button class="emoji-option" data-emoji="⚽">⚽</button>
+            <button class="emoji-option" data-emoji="🏍️">🏍️</button>
+            <button class="emoji-option" data-emoji="🔑">🔑</button>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 20px;">
+            <button id="cancelAddTappaBtn" class="glass-btn ghost">Annulla</button>
+            <button id="confirmAddTappaBtn" class="glass-btn primary">Salva Tappa</button>
+        </div>
+    </div>
+</div>
 
 <!-- Riepilogo fine corsa -->
 <div id="summaryModal" class="modal" aria-hidden="true">
