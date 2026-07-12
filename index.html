@@ -1,252 +1,262 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>Ciclus — Ciclocomputer GPS</title>
-<meta name="description" content="Ciclocomputer GPS con tachimetro, distanza, tempo e cronologia corse.">
-<meta name="theme-color" content="#08090b">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Ciclus — Ciclocomputer GPS</title>
+    <meta name="description" content="Ciclocomputer GPS con tachimetro, distanza, tempo e cronologia corse.">
+    <meta name="theme-color" content="#08090b">
 
-<!-- PWA -->
-<link rel="manifest" href="manifest.json">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="icon.svg">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Ciclus">
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Ciclus">
 
-<!-- Font: Space Grotesk (UI) + JetBrains Mono (dati numerici tabellari) -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+    <!-- Font: Space Grotesk (UI) + JetBrains Mono (dati numerici tabellari) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 
-<!-- Leaflet.js CSS -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Leaflet.js CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
-<link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<!-- Mappa con Contenitore per Rotazione -->
-<div id="map-container">
-    <div id="map"></div>
-</div>
-
-<!-- Barra di stato superiore -->
-<header id="statusBar" class="status-bar">
-    <div class="status-pill" id="gpsStatus">
-        <span class="status-dot" id="gpsDot"></span>
-        <span class="status-text" id="gpsText">GPS in attesa</span>
+    <!-- Mappa con Contenitore per Rotazione -->
+    <div id="map-container">
+        <div id="map"></div>
     </div>
 
-    <div class="status-actions">
-        <!-- Pulsante Tappe -->
-        <button class="icon-btn" id="tappeBtn" aria-label="Tappe e Tempi" title="Tappe">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
-        </button>
-        <button class="icon-btn" id="historyBtn" aria-label="Cronologia corse" title="Cronologia">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M3 12a9 9 0 1 0 3-6.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3 4v5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <button class="icon-btn" id="settingsBtn" aria-label="Impostazioni" title="Impostazioni">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 13a7.7 7.7 0 0 0 0-2l2-1.5-2-3.5-2.4.6a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.3 2.5a7.6 7.6 0 0 0-1.7 1l-2.4-.6-2 3.5L6.6 11a7.7 7.7 0 0 0 0 2l-2 1.5 2 3.5 2.4-.6a7.6 7.6 0 0 0 1.7 1L11 21h4l.3-2.5a7.6 7.6 0 0 0 1.7-1l2.4.6 2-3.5-2-1.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-        </button>
-    </div>
-</header>
-
-<!-- Barra statistiche superiore -->
-<section id="statsBar" class="stats-bar">
-    <div class="stat-chip">
-        <span class="stat-label">Distanza</span>
-        <div class="stat-value"><span id="distance">0.00</span> <span class="unit-small" id="distUnitLabel">km</span></div>
-    </div>
-    <div class="stat-chip">
-        <span class="stat-label">Tempo</span>
-        <div class="stat-value"><span id="timer">00:00:00</span></div>
-    </div>
-    <div class="stat-chip">
-        <span class="stat-label">Media</span>
-        <div class="stat-value"><span id="avgSpeed">0.0</span> <span class="unit-small" id="avgUnitLabel">km/h</span></div>
-    </div>
-    <div class="stat-chip">
-        <span class="stat-label">Massima</span>
-        <div class="stat-value"><span id="maxSpeed">0.0</span> <span class="unit-small" id="maxUnitLabel">km/h</span></div>
-    </div>
-    <div class="stat-chip stat-chip-minor">
-        <span class="stat-label">Precisione</span>
-        <div class="stat-value stat-value-minor"><span id="accuracy">--</span> <span class="unit-small">m</span></div>
-    </div>
-    <div class="stat-chip stat-chip-minor">
-        <span class="stat-label">Altitudine</span>
-        <div class="stat-value stat-value-minor"><span id="altitude">--</span> <span class="unit-small">m</span></div>
-    </div>
-</section>
-
-<!-- Pannello Tappe -->
-<aside id="tappePanel" class="sheet" aria-hidden="true">
-    <div class="sheet-handle"></div>
-    <div class="sheet-header">
-        <h2>Tappe e Tempi</h2>
-        <button class="icon-btn" id="closeTappeBtn" aria-label="Chiudi">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </button>
-    </div>
-    <button id="triggerAddTappaBtn" class="glass-btn primary" style="width:100%; margin-bottom:15px;">Salva Posizione Attuale come Tappa</button>
-    <div id="tappeList" class="history-list">
-        <p class="empty-state">Nessuna tappa salvata. Aggiungi tappe per registrare i tempi di passaggio.</p>
-    </div>
-</aside>
-
-<!-- Pannello cronologia -->
-<aside id="historyPanel" class="sheet" aria-hidden="true">
-    <div class="sheet-handle"></div>
-    <div class="sheet-header">
-        <h2>Cronologia corse</h2>
-        <button class="icon-btn" id="closeHistoryBtn" aria-label="Chiudi">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </button>
-    </div>
-    <div id="historyList" class="history-list">
-        <p class="empty-state">Nessuna corsa salvata ancora. Le corse completate compariranno qui.</p>
-    </div>
-    <button id="clearHistoryBtn" class="text-btn danger">Cancella tutta la cronologia</button>
-</aside>
-
-<!-- Pannello impostazioni -->
-<aside id="settingsPanel" class="sheet" aria-hidden="true">
-    <div class="sheet-handle"></div>
-    <div class="sheet-header">
-        <h2>Impostazioni</h2>
-        <button class="icon-btn" id="closeSettingsBtn" aria-label="Chiudi">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </button>
-    </div>
-    <div class="setting-row">
-        <span>Tema Mappa</span>
-        <div class="segmented" id="mapThemeToggle">
-            <button class="segmented-option active" data-theme="dark">Scuro</button>
-            <button class="segmented-option" data-theme="light">Chiaro</button>
-        </div>
-    </div>
-    <div class="setting-row">
-        <span>Rotazione Mappa (Bussola)</span>
-        <div class="segmented" id="mapRotateToggle">
-            <button class="segmented-option" data-rotate="off">Fissa</button>
-            <button class="segmented-option active" data-rotate="on">Segui</button>
-        </div>
-    </div>
-    <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 10px;">
-        <div style="width:100%; display:flex; justify-content:space-between;">
-            <span>Livello Zoom</span>
-            <span id="zoomLevelDisplay" class="segmented-info">18</span>
-        </div>
-        <input type="range" id="mapZoomSlider" min="14" max="22" value="18" style="width:100%;">
-    </div>
-    <div class="setting-row">
-        <span>Unità di misura</span>
-        <div class="segmented" id="unitToggle">
-            <button class="segmented-option active" data-unit="km">km/h</button>
-            <button class="segmented-option" data-unit="mi">mph</button>
-        </div>
-    </div>
-</aside>
-
-<div class="scrim" id="scrim"></div>
-
-<!-- Modale Creazione Tappa con Emoji -->
-<div id="addTappaModal" class="modal" aria-hidden="true">
-    <div class="modal-card">
-        <h2>Nuova Tappa</h2>
-        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 15px; text-align: center;">Identifica la tua posizione attuale.</p>
-        
-        <input type="text" id="tappaNameInput" placeholder="Es. Casa, Lavoro..." class="glass-input" autocomplete="off">
-        
-        <div class="emoji-picker" id="emojiPicker">
-            <button class="emoji-option active" data-emoji="📍">📍</button>
-            <button class="emoji-option" data-emoji="🏠">🏠</button>
-            <button class="emoji-option" data-emoji="🎓">🎓</button>
-            <button class="emoji-option" data-emoji="🏋️‍♂️">🏋️‍♂️</button>
-            <button class="emoji-option" data-emoji="🥋">🥋</button>
-            <button class="emoji-option" data-emoji="⚽">⚽</button>
-            <button class="emoji-option" data-emoji="🏍️">🏍️</button>
-            <button class="emoji-option" data-emoji="🔑">🔑</button>
+    <!-- Barra di stato superiore -->
+    <header id="statusBar" class="status-bar">
+        <div class="status-pill" id="gpsStatus">
+            <span class="status-dot" id="gpsDot"></span>
+            <span class="status-text" id="gpsText">GPS in attesa</span>
         </div>
 
-        <div class="modal-actions" style="margin-top: 20px;">
-            <button id="cancelAddTappaBtn" class="glass-btn ghost">Annulla</button>
-            <button id="confirmAddTappaBtn" class="glass-btn primary">Salva Tappa</button>
+        <div class="status-actions">
+            <!-- Pulsante Tappe -->
+            <button class="icon-btn" id="tappeBtn" aria-label="Tappe e Tempi" title="Tappe">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+                    <line x1="4" y1="22" x2="4" y2="15"></line>
+                </svg>
+            </button>
+            <button class="icon-btn" id="historyBtn" aria-label="Cronologia corse" title="Cronologia">
+                <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M3 12a9 9 0 1 0 3-6.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    <path d="M3 4v5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+            <button class="icon-btn" id="settingsBtn" aria-label="Impostazioni" title="Impostazioni">
+                <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="1.8"/>
+                    <path d="M19.4 13a7.7 7.7 0 0 0 0-2l2-1.5-2-3.5-2.4.6a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.3 2.5a7.6 7.6 0 0 0-1.7 1l-2.4-.6-2 3.5L6.6 11a7.7 7.7 0 0 0 0 2l-2 1.5 2 3.5 2.4-.6a7.6 7.6 0 0 0 1.7 1L11 21h4l.3-2.5a7.6 7.6 0 0 0 1.7-1l2.4.6 2-3.5-2-1.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                </svg>
+            </button>
         </div>
-    </div>
-</div>
+    </header>
 
-<!-- Riepilogo fine corsa -->
-<div id="summaryModal" class="modal" aria-hidden="true">
-    <div class="modal-card">
-        <h2>Corsa completata</h2>
-        <div class="summary-grid">
-            <div class="summary-item">
-                <span class="stat-label">Distanza</span>
-                <strong id="sumDistance">0.00 km</strong>
-            </div>
-            <div class="summary-item">
-                <span class="stat-label">Tempo</span>
-                <strong id="sumTime">00:00:00</strong>
-            </div>
-            <div class="summary-item">
-                <span class="stat-label">Vel. media</span>
-                <strong id="sumAvg">0.0 km/h</strong>
-            </div>
-            <div class="summary-item">
-                <span class="stat-label">Vel. massima</span>
-                <strong id="sumMax">0.0 km/h</strong>
+    <!-- Barra statistiche superiore -->
+    <section id="statsBar" class="stats-bar">
+        <div class="stat-chip">
+            <span class="stat-label">Distanza</span>
+            <div class="stat-value"><span id="distance">0.00</span> <span class="unit-small" id="distUnitLabel">km</span></div>
+        </div>
+        <div class="stat-chip">
+            <span class="stat-label">Tempo</span>
+            <div class="stat-value"><span id="timer">00:00:00</span></div>
+        </div>
+        <div class="stat-chip">
+            <span class="stat-label">Media</span>
+            <div class="stat-value"><span id="avgSpeed">0.0</span> <span class="unit-small" id="avgUnitLabel">km/h</span></div>
+        </div>
+        <div class="stat-chip">
+            <span class="stat-label">Massima</span>
+            <div class="stat-value"><span id="maxSpeed">0.0</span> <span class="unit-small" id="maxUnitLabel">km/h</span></div>
+        </div>
+        <div class="stat-chip stat-chip-minor">
+            <span class="stat-label">Precisione</span>
+            <div class="stat-value stat-value-minor"><span id="accuracy">--</span> <span class="unit-small">m</span></div>
+        </div>
+        <div class="stat-chip stat-chip-minor">
+            <span class="stat-label">Altitudine</span>
+            <div class="stat-value stat-value-minor"><span id="altitude">--</span> <span class="unit-small">m</span></div>
+        </div>
+    </section>
+
+    <!-- Pannello Tappe -->
+    <aside id="tappePanel" class="sheet" aria-hidden="true">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+            <h2>Tappe e Tempi</h2>
+            <button class="icon-btn" id="closeTappeBtn" aria-label="Chiudi">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </button>
+        </div>
+        <button id="triggerAddTappaBtn" class="glass-btn primary" style="width:100%; margin-bottom:15px;">Salva Posizione Attuale come Tappa</button>
+        <div id="tappeList" class="history-list">
+            <p class="empty-state">Nessuna tappa salvata. Aggiungi tappe per registrare i tempi di passaggio.</p>
+        </div>
+    </aside>
+
+    <!-- Pannello cronologia -->
+    <aside id="historyPanel" class="sheet" aria-hidden="true">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+            <h2>Cronologia corse</h2>
+            <button class="icon-btn" id="closeHistoryBtn" aria-label="Chiudi">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </button>
+        </div>
+        <div id="historyList" class="history-list">
+            <p class="empty-state">Nessuna corsa salvata ancora. Le corse completate compariranno qui.</p>
+        </div>
+        <button id="clearHistoryBtn" class="text-btn danger">Cancella tutta la cronologia</button>
+    </aside>
+
+    <!-- Pannello impostazioni -->
+    <aside id="settingsPanel" class="sheet" aria-hidden="true">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+            <h2>Impostazioni</h2>
+            <button class="icon-btn" id="closeSettingsBtn" aria-label="Chiudi">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </button>
+        </div>
+        <div class="setting-row">
+            <span>Tema Mappa</span>
+            <div class="segmented" id="mapThemeToggle">
+                <button class="segmented-option active" data-theme="dark">Scuro</button>
+                <button class="segmented-option" data-theme="light">Chiaro</button>
             </div>
         </div>
-        <div class="modal-actions">
-            <button id="discardRideBtn" class="glass-btn ghost">Scarta</button>
-            <button id="saveRideBtn" class="glass-btn primary">Salva corsa</button>
+        <div class="setting-row">
+            <span>Rotazione Mappa (Bussola)</span>
+            <div class="segmented" id="mapRotateToggle">
+                <button class="segmented-option" data-rotate="off">Fissa</button>
+                <button class="segmented-option active" data-rotate="on">Segui</button>
+            </div>
+        </div>
+        <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 10px;">
+            <div style="width:100%; display:flex; justify-content:space-between;">
+                <span>Livello Zoom</span>
+                <span id="zoomLevelDisplay" class="segmented-info">18</span>
+            </div>
+            <input type="range" id="mapZoomSlider" min="14" max="22" value="18" style="width:100%;">
+        </div>
+        <div class="setting-row">
+            <span>Unità di misura</span>
+            <div class="segmented" id="unitToggle">
+                <button class="segmented-option active" data-unit="km">km/h</button>
+                <button class="segmented-option" data-unit="mi">mph</button>
+            </div>
+        </div>
+    </aside>
+
+    <div class="scrim" id="scrim"></div>
+
+    <!-- Modale Creazione Tappa con Emoji (Glassmorphism) -->
+    <div id="addTappaModal" class="modal" aria-hidden="true">
+        <div class="modal-card">
+            <h2>Nuova Tappa</h2>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 15px; text-align: center;">Identifica la tua posizione attuale.</p>
+            
+            <input type="text" id="tappaNameInput" placeholder="Es. Casa, Lavoro..." class="glass-input" autocomplete="off">
+            
+            <div class="emoji-picker" id="emojiPicker">
+                <button class="emoji-option active" data-emoji="📍">📍</button>
+                <button class="emoji-option" data-emoji="🏠">🏠</button>
+                <button class="emoji-option" data-emoji="🎓">🎓</button>
+                <button class="emoji-option" data-emoji="🏋️‍♂️">🏋️‍♂️</button>
+                <button class="emoji-option" data-emoji="🥋">🥋</button>
+                <button class="emoji-option" data-emoji="⚽">⚽</button>
+                <button class="emoji-option" data-emoji="🏍️">🏍️</button>
+                <button class="emoji-option" data-emoji="🔑">🔑</button>
+            </div>
+
+            <div class="modal-actions" style="margin-top: 20px;">
+                <button id="cancelAddTappaBtn" class="glass-btn ghost">Annulla</button>
+                <button id="confirmAddTappaBtn" class="glass-btn primary">Salva Tappa</button>
+            </div>
         </div>
     </div>
-</div>
 
-<!-- Dock tachimetro -->
-<main id="speedoDock" class="speedo-dock">
-    <div class="speedometer-wrapper">
-        <svg class="speed-gauge" id="speedGaugeSvg" viewBox="0 0 240 240">
-            <g id="tickLayer"></g>
-            <circle id="gaugeTrack" cx="120" cy="120" r="100" fill="none" class="gauge-track" />
-            <circle id="speedProgress" cx="120" cy="120" r="100" fill="none" class="gauge-progress" />
-            <g id="speedNeedle" class="needle-group">
-                <polygon points="117,120 123,120 120,32" class="needle" />
-                <circle cx="120" cy="120" r="9" class="needle-hub" />
-            </g>
-        </svg>
-
-        <div class="speed-digital">
-            <span id="currentSpeed">0.0</span>
-            <span class="unit" id="speedUnitLabel">km/h</span>
-        </div>
-
-        <div class="rec-indicator" id="recIndicator" aria-hidden="true">
-            <span class="rec-dot"></span> REC
+    <!-- Riepilogo fine corsa -->
+    <div id="summaryModal" class="modal" aria-hidden="true">
+        <div class="modal-card">
+            <h2>Corsa completata</h2>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <span class="stat-label">Distanza</span>
+                    <strong id="sumDistance">0.00 km</strong>
+                </div>
+                <div class="summary-item">
+                    <span class="stat-label">Tempo</span>
+                    <strong id="sumTime">00:00:00</strong>
+                </div>
+                <div class="summary-item">
+                    <span class="stat-label">Vel. media</span>
+                    <strong id="sumAvg">0.0 km/h</strong>
+                </div>
+                <div class="summary-item">
+                    <span class="stat-label">Vel. massima</span>
+                    <strong id="sumMax">0.0 km/h</strong>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button id="discardRideBtn" class="glass-btn ghost">Scarta</button>
+                <button id="saveRideBtn" class="glass-btn primary">Salva corsa</button>
+            </div>
         </div>
     </div>
-</main>
 
-<!-- Controlli -->
-<div id="rideControls" class="ride-controls">
-    <button id="startBtn" class="dock-btn dock-btn-start" aria-label="Inizia corsa" title="Inizia corsa">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M7 5.5v13l11-6.5-11-6.5Z" fill="currentColor"/></svg>
-    </button>
-    <button id="pauseBtn" class="dock-btn hidden" aria-label="Pausa" title="Pausa">
-        <svg id="pauseIcon" viewBox="0 0 24 24" fill="none"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
-    </button>
-    <button id="stopBtn" class="dock-btn dock-btn-stop hidden" aria-label="Termina corsa" title="Termina corsa">
-        <svg viewBox="0 0 24 24" fill="none"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>
-    </button>
-</div>
+    <!-- Dock tachimetro -->
+    <main id="speedoDock" class="speedo-dock">
+        <div class="speedometer-wrapper">
+            <svg class="speed-gauge" id="speedGaugeSvg" viewBox="0 0 240 240">
+                <g id="tickLayer"></g>
+                <circle id="gaugeTrack" cx="120" cy="120" r="100" fill="none" class="gauge-track" />
+                <circle id="speedProgress" cx="120" cy="120" r="100" fill="none" class="gauge-progress" />
+                <g id="speedNeedle" class="needle-group">
+                    <polygon points="117,120 123,120 120,32" class="needle" />
+                    <circle cx="120" cy="120" r="9" class="needle-hub" />
+                </g>
+            </svg>
 
-<!-- Leaflet.js -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="script.js"></script>
+            <div class="speed-digital">
+                <span id="currentSpeed">0.0</span>
+                <span class="unit" id="speedUnitLabel">km/h</span>
+            </div>
+
+            <div class="rec-indicator" id="recIndicator" aria-hidden="true">
+                <span class="rec-dot"></span> REC
+            </div>
+        </div>
+    </main>
+
+    <!-- Controlli -->
+    <div id="rideControls" class="ride-controls">
+        <button id="startBtn" class="dock-btn dock-btn-start" aria-label="Inizia corsa" title="Inizia corsa">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M7 5.5v13l11-6.5-11-6.5Z" fill="currentColor"/></svg>
+        </button>
+        <button id="pauseBtn" class="dock-btn hidden" aria-label="Pausa" title="Pausa">
+            <svg id="pauseIcon" viewBox="0 0 24 24" fill="none"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
+        </button>
+        <button id="stopBtn" class="dock-btn dock-btn-stop hidden" aria-label="Termina corsa" title="Termina corsa">
+            <svg viewBox="0 0 24 24" fill="none"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>
+        </button>
+    </div>
+
+    <!-- Leaflet.js -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="script.js"></script>
 
 </body>
 </html>
