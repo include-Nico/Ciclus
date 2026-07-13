@@ -31,7 +31,7 @@ const state = {
     lastAcceptedSpeed: 0,
     lastValidSpeedTime: null, 
     lastBearing: null,      
-    smoothedHeading: null,    // Filtro LPF per la rotazione
+    smoothedHeading: null,    
 
     startTime: null,
     pauseStartedAt: null,
@@ -149,7 +149,6 @@ function initMap() {
     
     updateMapThemeLayer();
 
-    // Sostituito il triangolo piatto con il nuovo Chevron nav style
     const customIcon = L.divIcon({
         className: 'custom-gps-marker',
         html: '<div class="gps-marker-halo"></div><div class="gps-marker"><div class="gps-chevron"></div></div>',
@@ -181,7 +180,6 @@ function updateMapThemeLayer() {
     }).addTo(state.map);
 }
 
-// Low-Pass Filter per smussare le fluttuazioni erratiche dell'Heading
 function getSmoothedHeading(newHeading) {
     if (state.smoothedHeading === null) {
         state.smoothedHeading = newHeading;
@@ -192,7 +190,7 @@ function getSmoothedHeading(newHeading) {
     while (diff < -180) diff += 360;
     while (diff > 180) diff -= 360;
     
-    state.smoothedHeading += diff * 0.15; // Interpolazione morbida
+    state.smoothedHeading += diff * 0.15; 
     return state.smoothedHeading;
 }
 
@@ -204,19 +202,17 @@ function updateMarkerHeading(headingDeg) {
     const arrow = state.marker?.getElement()?.querySelector('.gps-marker');
 
     if (isFollowing) {
-        // VISUALE TERZA PERSONA: Tilt 3D (rotateX), traslazione (look-ahead) e rotazione (rotateZ)
         el.perspectiveWrapper.style.perspective = '1200px';
-        el.mapContainer.style.transform = `rotateX(55deg) translateY(20vh) rotateZ(${-headingDeg}deg)`;
+        // Grazie al nuovo top: 38% nel CSS, non serve forzare translateY aggressivi qui.
+        // Un lieve translateY(5vh) bilancia perfettamente la prospettiva mantenendo il marker libero dai bottoni.
+        el.mapContainer.style.transform = `rotateX(55deg) translateY(5vh) rotateZ(${-headingDeg}deg)`;
         
         if (arrow) arrow.style.transform = `rotate(0deg)`;
         
-        // Effetto Billboard per Emojis: controruotiamo Z in modo che puntino sempre verso l'alto dello schermo,
-        // ed applichiamo uno scaleY per compensare lo schiacciamento prospettico generato dal rotateX del container madre.
         emojis.forEach(icon => {
             icon.style.transform = `rotateZ(${headingDeg}deg) scaleY(1.75)`; 
         });
     } else {
-        // VISUALE CLASSICA 2D ZENITALE
         el.perspectiveWrapper.style.perspective = 'none';
         el.mapContainer.style.transform = `rotateX(0deg) translateY(0) rotateZ(0deg)`;
         
@@ -360,7 +356,6 @@ function renderTappeMarkers() {
     
     tappeLayerGroup = L.layerGroup().addTo(state.map);
     
-    // Ricalcoliamo subito il transform in caso riavviamo l'app in Segui Bussola ON
     const currentRot = state.lastBearing || 0;
     const isFollowing = state.mapRotate === 'on';
     const initTransform = isFollowing ? `rotateZ(${currentRot}deg) scaleY(1.75)` : `rotateZ(0deg) scaleY(1)`;
@@ -370,7 +365,7 @@ function renderTappeMarkers() {
             html: `<div class="emoji-map-marker" style="transform: ${initTransform};">${tappa.emoji || '📍'}</div>`,
             className: 'custom-emoji-icon',
             iconSize: [40, 40],
-            iconAnchor: [20, 40] // Ancoraggio alla base in modo che "stiano in piedi" esattamente sul punto
+            iconAnchor: [20, 40] 
         });
 
         L.marker([tappa.lat, tappa.lng], { icon: emojiIcon })
@@ -586,8 +581,6 @@ function onPosition(position) {
     const currentLatLng = [coords.latitude, coords.longitude];
     let heading = typeof coords.heading === 'number' && !Number.isNaN(coords.heading) ? coords.heading : null;
     
-    // Ignoriamo ricalcoli di heading per spostamenti sotto i 5 metri
-    // per evitare i testacoda della freccia quando si va lenti
     if (heading === null && state.lastPosition) {
         const movedKm = haversineDistanceKm(state.lastPosition.latitude, state.lastPosition.longitude, coords.latitude, coords.longitude);
         if (movedKm > 0.005) {
@@ -615,7 +608,6 @@ function onPosition(position) {
         ? coords.speed * 3.6 
         : deriveSpeedFromFixes(coords, position.timestamp);
         
-    // Smoothing GPS drop signal
     if (speedKmh >= MIN_SPEED_THRESHOLD) {
         state.lastAcceptedSpeed = speedKmh;
         state.lastValidSpeedTime = Date.now();

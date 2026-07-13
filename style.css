@@ -1,5 +1,7 @@
 /* ==========================================================================
    CICLUS — Design tokens
+   Palette "asfalto + hi-vis": nero caldo da manto stradale, verde acido
+   da capo ciclistico ad alta visibilità come accento unico.
    ========================================================================== */
 :root {
     --void: #08090b;
@@ -118,18 +120,20 @@ button {
     inset: 0;
     overflow: hidden;
     z-index: 1;
-    perspective: 1200px; /* Crea la profondità 3D per l'intero contesto visivo */
+    perspective: 1200px;
 }
 
 #map-container {
     position: absolute;
     width: 200vmax;
     height: 200vmax;
-    top: calc(50% - 100vmax);
+    /* Spostiamo il centro di rotazione in alto del 12% rispetto al centro geometrico.
+       Così facendo, la freccia rimane perfettamente nell'asse di rotazione ma
+       abbastanza in alto per non toccare i controlli inferiori. */
+    top: calc(38% - 100vmax); 
     left: calc(50% - 100vmax);
     transform-style: preserve-3d;
     transform-origin: center center;
-    /* La transizione addolcisce fisicamente le variazioni di rotazione CSS */
     transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     will-change: transform;
 }
@@ -171,7 +175,6 @@ button {
     transform-origin: 50% 50%;
 }
 
-/* Redesign Chevron 3D */
 .gps-chevron {
     width: 0;
     height: 0;
@@ -189,17 +192,17 @@ button {
     left: -12px;
     border-left: 12px solid transparent;
     border-right: 12px solid transparent;
-    border-bottom: 12px solid var(--void); /* Scavo interno per formare la freccia */
+    border-bottom: 12px solid var(--void);
 }
 
 /* Emoji Marker Billboard */
 .emoji-map-marker {
-    font-size: 38px; /* Notevolmente ingrandito */
+    font-size: 38px; 
     line-height: 1;
     text-align: center;
     filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.8));
     transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-    transform-origin: bottom center; /* L'ancoraggio alla mappa è alla base dell'icona */
+    transform-origin: bottom center;
 }
 
 /* ==========================================================================
