@@ -203,11 +203,11 @@ function updateMarkerHeading(headingDeg) {
 
     if (isFollowing) {
         el.perspectiveWrapper.style.perspective = '1200px';
-        // Grazie al nuovo top: 38% nel CSS, non serve forzare translateY aggressivi qui.
-        // Un lieve translateY(5vh) bilancia perfettamente la prospettiva mantenendo il marker libero dai bottoni.
         el.mapContainer.style.transform = `rotateX(55deg) translateY(5vh) rotateZ(${-headingDeg}deg)`;
         
-        if (arrow) arrow.style.transform = `rotate(0deg)`;
+        // Risoluzione bug: applicando +headingDeg bilanciamo la rotazione negativa della mappa
+        // in questo modo la freccia punta *sempre* dritta davanti a noi sullo schermo!
+        if (arrow) arrow.style.transform = `rotate(${headingDeg}deg)`;
         
         emojis.forEach(icon => {
             icon.style.transform = `rotateZ(${headingDeg}deg) scaleY(1.75)`; 
@@ -579,30 +579,6 @@ function resetRideStats() {
 function onPosition(position) {
     const coords = position.coords;
     const currentLatLng = [coords.latitude, coords.longitude];
-    let heading = typeof coords.heading === 'number' && !Number.isNaN(coords.heading) ? coords.heading : null;
-    
-    if (heading === null && state.lastPosition) {
-        const movedKm = haversineDistanceKm(state.lastPosition.latitude, state.lastPosition.longitude, coords.latitude, coords.longitude);
-        if (movedKm > 0.005) {
-            heading = computeBearingDeg(state.lastPosition.latitude, state.lastPosition.longitude, coords.latitude, coords.longitude);
-        }
-    }
-    
-    if (heading !== null) { 
-        heading = getSmoothedHeading(heading);
-        state.lastBearing = heading; 
-        updateMarkerHeading(heading); 
-    }
-    
-    if (state.map && state.marker) { 
-        state.map.panTo(currentLatLng, { animate: true, duration: 0.5 }); 
-        state.marker.setLatLng(currentLatLng); 
-    }
-    
-    updateGpsQuality(coords.accuracy); 
-    
-    el.accuracy.textContent = coords.accuracy.toFixed(0); 
-    el.altitude.textContent = typeof coords.altitude === 'number' ? coords.altitude.toFixed(0) : '--';
     
     let speedKmh = typeof coords.speed === 'number' && coords.speed !== null 
         ? coords.speed * 3.6 
@@ -619,6 +595,39 @@ function onPosition(position) {
             state.lastAcceptedSpeed = 0;
         }
     }
+
+    let heading = typeof coords.heading === 'number' && !Number.isNaN(coords.heading) ? coords.heading : null;
+    
+    // Ricalcoliamo il bearing dai fix di geolocalizzazione unicamente se 
+    // l'utente si sta spostando di un margine decente (> 2 km/h)
+    // altrimenti teniamo il vecchio angolo per non "far sgommare" la freccia da ferma.
+    if (heading === null && state.lastPosition && speedKmh > 2.0) {
+        const movedKm = haversineDistanceKm(state.lastPosition.latitude, state.lastPosition.longitude, coords.latitude, coords.longitude);
+        if (movedKm > 0.002) {
+            heading = computeBearingDeg(state.lastPosition.latitude, state.lastPosition.longitude, coords.latitude, coords.longitude);
+        }
+    }
+    
+    if (heading !== null) { 
+        heading = getSmoothedHeading(heading);
+        state.lastBearing = heading; 
+    } else if (state.lastBearing !== null) {
+        heading = state.lastBearing;
+    } else {
+        heading = 0;
+    }
+
+    updateMarkerHeading(heading); 
+    
+    if (state.map && state.marker) { 
+        state.map.panTo(currentLatLng, { animate: true, duration: 0.5 }); 
+        state.marker.setLatLng(currentLatLng); 
+    }
+    
+    updateGpsQuality(coords.accuracy); 
+    
+    el.accuracy.textContent = coords.accuracy.toFixed(0); 
+    el.altitude.textContent = typeof coords.altitude === 'number' ? coords.altitude.toFixed(0) : '--';
     
     el.currentSpeed.textContent = kmhToDisplaySpeed(speedKmh).toFixed(1); 
     updateGaugeVisual(speedKmh);
