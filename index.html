@@ -27,9 +27,11 @@
 </head>
 <body>
 
-    <!-- Mappa con Contenitore per Rotazione -->
-    <div id="map-container">
-        <div id="map"></div>
+    <!-- Wrapper per la Prospettiva 3D in Terza Persona -->
+    <div id="perspective-wrapper">
+        <div id="map-container">
+            <div id="map"></div>
+        </div>
     </div>
 
     <!-- Barra di stato superiore -->
@@ -40,7 +42,6 @@
         </div>
 
         <div class="status-actions">
-            <!-- Pulsante Tappe -->
             <button class="icon-btn" id="tappeBtn" aria-label="Tappe e Tempi" title="Tappe">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
@@ -162,7 +163,7 @@
 
     <div class="scrim" id="scrim"></div>
 
-    <!-- Modale Creazione Tappa con Emoji (Glassmorphism) -->
+    <!-- Modale Creazione Tappa con Emoji -->
     <div id="addTappaModal" class="modal" aria-hidden="true">
         <div class="modal-card">
             <h2>Nuova Tappa</h2>

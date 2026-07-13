@@ -1,7 +1,5 @@
 /* ==========================================================================
    CICLUS — Design tokens
-   Palette "asfalto + hi-vis": nero caldo da manto stradale, verde acido
-   da capo ciclistico ad alta visibilità come accento unico.
    ========================================================================== */
 :root {
     --void: #08090b;
@@ -113,19 +111,26 @@ button {
 }
 
 /* ==========================================================================
-   Mappa con Contenitore Rotante (Fix Bande Nere)
+   Mappa & Wrapper Terza Persona (3D Perspective)
    ========================================================================== */
+#perspective-wrapper {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    z-index: 1;
+    perspective: 1200px; /* Crea la profondità 3D per l'intero contesto visivo */
+}
+
 #map-container {
     position: absolute;
-    /* Creiamo un quadrato enorme basato sulla dimensione massima dello schermo (vmax)
-       per garantire che la diagonale copra sempre l'intero viewport a qualsiasi angolazione */
     width: 200vmax;
     height: 200vmax;
     top: calc(50% - 100vmax);
     left: calc(50% - 100vmax);
-    z-index: 1;
+    transform-style: preserve-3d;
     transform-origin: center center;
-    transition: transform 0.3s linear;
+    /* La transizione addolcisce fisicamente le variazioni di rotazione CSS */
+    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     will-change: transform;
 }
 
@@ -141,7 +146,7 @@ button {
     font-size: 8px !important;
 }
 
-/* Marker GPS */
+/* Marker GPS Chevron Moderno */
 .custom-gps-marker { 
     display: flex; 
     align-items: center; 
@@ -150,10 +155,10 @@ button {
 
 .gps-marker-halo {
     position: absolute;
-    width: 40px;
-    height: 40px;
+    width: 50px;
+    height: 50px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(198, 255, 61, 0.22) 0%, rgba(198, 255, 61, 0) 70%);
+    background: radial-gradient(circle, rgba(198, 255, 61, 0.25) 0%, rgba(198, 255, 61, 0) 70%);
 }
 
 .gps-marker {
@@ -166,22 +171,35 @@ button {
     transform-origin: 50% 50%;
 }
 
-.gps-triangle {
+/* Redesign Chevron 3D */
+.gps-chevron {
     width: 0;
     height: 0;
-    border-left: 8px solid transparent;
-    border-right: 8px solid transparent;
-    border-bottom: 20px solid var(--accent);
-    filter: drop-shadow(0 0 4px var(--accent-glow)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+    border-left: 12px solid transparent;
+    border-right: 12px solid transparent;
+    border-bottom: 28px solid var(--accent);
+    position: relative;
+    filter: drop-shadow(0 6px 4px rgba(0, 0, 0, 0.7));
 }
 
-/* Emoji Marker Leaflet */
+.gps-chevron::after {
+    content: '';
+    position: absolute;
+    top: 18px;
+    left: -12px;
+    border-left: 12px solid transparent;
+    border-right: 12px solid transparent;
+    border-bottom: 12px solid var(--void); /* Scavo interno per formare la freccia */
+}
+
+/* Emoji Marker Billboard */
 .emoji-map-marker {
-    font-size: 26px;
+    font-size: 38px; /* Notevolmente ingrandito */
     line-height: 1;
     text-align: center;
-    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.6));
-    transition: transform 0.2s ease;
+    filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.8));
+    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    transform-origin: bottom center; /* L'ancoraggio alla mappa è alla base dell'icona */
 }
 
 /* ==========================================================================

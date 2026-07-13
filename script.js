@@ -9,8 +9,8 @@ const DIAL_SWEEP = 270;
 const GAUGE_RADIUS = 100;       
 const MIN_ACCURACY_FOR_DISTANCE = 30; 
 const MIN_SPEED_THRESHOLD = 0.8;      
-const TAPPA_PROXIMITY_RADIUS = 0.03; // In km (circa 30 metri per attivare il check)
-const SPEED_DEBOUNCE_MS = 4000;      // Millisecondi per mascherare i cali del segnale GPS
+const TAPPA_PROXIMITY_RADIUS = 0.03; 
+const SPEED_DEBOUNCE_MS = 4000;      
 
 const state = {
     tracking: false,
@@ -20,7 +20,6 @@ const state = {
     mapRotate: localStorage.getItem('ciclus_rotate') || 'on',
     mapZoom: parseInt(localStorage.getItem('ciclus_zoom')) || 18,
     
-    // Struttura Tappa: { id, name, emoji, lat, lng, bestTime, history: [{ date, time }] }
     tappe: JSON.parse(localStorage.getItem('ciclus_tappe')) || [],
     tappeRaggiunteCorrenti: [], 
 
@@ -30,8 +29,9 @@ const state = {
 
     lastPosition: null,     
     lastAcceptedSpeed: 0,
-    lastValidSpeedTime: null, // Timestamp dell'ultimo segnale di velocità valido
+    lastValidSpeedTime: null, 
     lastBearing: null,      
+    smoothedHeading: null,    // Filtro LPF per la rotazione
 
     startTime: null,
     pauseStartedAt: null,
@@ -48,6 +48,7 @@ const state = {
    Riferimenti Elementi DOM
    ========================================================================== */
 const el = {
+    perspectiveWrapper: document.getElementById('perspective-wrapper'),
     mapContainer: document.getElementById('map-container'),
     speedGaugeSvg: document.getElementById('speedGaugeSvg'),
     tickLayer: document.getElementById('tickLayer'),
@@ -135,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* ==========================================================================
-   Gestione Mappa (Leaflet)
+   Gestione Mappa e Prospettiva 3D
    ========================================================================== */
 function initMap() {
     const defaultPos = [45.5180, 9.1940]; 
@@ -148,9 +149,10 @@ function initMap() {
     
     updateMapThemeLayer();
 
+    // Sostituito il triangolo piatto con il nuovo Chevron nav style
     const customIcon = L.divIcon({
         className: 'custom-gps-marker',
-        html: '<div class="gps-marker-halo"></div><div class="gps-marker"><div class="gps-triangle"></div></div>',
+        html: '<div class="gps-marker-halo"></div><div class="gps-marker"><div class="gps-chevron"></div></div>',
         iconSize: [34, 34],
         iconAnchor: [17, 17]
     });
@@ -179,17 +181,50 @@ function updateMapThemeLayer() {
     }).addTo(state.map);
 }
 
+// Low-Pass Filter per smussare le fluttuazioni erratiche dell'Heading
+function getSmoothedHeading(newHeading) {
+    if (state.smoothedHeading === null) {
+        state.smoothedHeading = newHeading;
+        return newHeading;
+    }
+    
+    let diff = newHeading - state.smoothedHeading;
+    while (diff < -180) diff += 360;
+    while (diff > 180) diff -= 360;
+    
+    state.smoothedHeading += diff * 0.15; // Interpolazione morbida
+    return state.smoothedHeading;
+}
+
 function updateMarkerHeading(headingDeg) {
     if (headingDeg === null || Number.isNaN(headingDeg)) return;
     
-    if (state.mapRotate === 'on') {
-        el.mapContainer.style.transform = `rotate(${-headingDeg}deg)`;
-        const arrow = state.marker?.getElement()?.querySelector('.gps-marker');
+    const isFollowing = state.mapRotate === 'on';
+    const emojis = document.querySelectorAll('.emoji-map-marker');
+    const arrow = state.marker?.getElement()?.querySelector('.gps-marker');
+
+    if (isFollowing) {
+        // VISUALE TERZA PERSONA: Tilt 3D (rotateX), traslazione (look-ahead) e rotazione (rotateZ)
+        el.perspectiveWrapper.style.perspective = '1200px';
+        el.mapContainer.style.transform = `rotateX(55deg) translateY(20vh) rotateZ(${-headingDeg}deg)`;
+        
         if (arrow) arrow.style.transform = `rotate(0deg)`;
+        
+        // Effetto Billboard per Emojis: controruotiamo Z in modo che puntino sempre verso l'alto dello schermo,
+        // ed applichiamo uno scaleY per compensare lo schiacciamento prospettico generato dal rotateX del container madre.
+        emojis.forEach(icon => {
+            icon.style.transform = `rotateZ(${headingDeg}deg) scaleY(1.75)`; 
+        });
     } else {
-        el.mapContainer.style.transform = `rotate(0deg)`;
-        const arrow = state.marker?.getElement()?.querySelector('.gps-marker');
+        // VISUALE CLASSICA 2D ZENITALE
+        el.perspectiveWrapper.style.perspective = 'none';
+        el.mapContainer.style.transform = `rotateX(0deg) translateY(0) rotateZ(0deg)`;
+        
         if (arrow) arrow.style.transform = `rotate(${headingDeg}deg)`;
+        
+        emojis.forEach(icon => {
+            icon.style.transform = `rotateZ(0deg) scaleY(1)`;
+        });
     }
 }
 
@@ -325,12 +360,17 @@ function renderTappeMarkers() {
     
     tappeLayerGroup = L.layerGroup().addTo(state.map);
     
+    // Ricalcoliamo subito il transform in caso riavviamo l'app in Segui Bussola ON
+    const currentRot = state.lastBearing || 0;
+    const isFollowing = state.mapRotate === 'on';
+    const initTransform = isFollowing ? `rotateZ(${currentRot}deg) scaleY(1.75)` : `rotateZ(0deg) scaleY(1)`;
+
     state.tappe.forEach(tappa => {
         const emojiIcon = L.divIcon({
-            html: `<div class="emoji-map-marker">${tappa.emoji || '📍'}</div>`,
+            html: `<div class="emoji-map-marker" style="transform: ${initTransform};">${tappa.emoji || '📍'}</div>`,
             className: 'custom-emoji-icon',
-            iconSize: [30, 30],
-            iconAnchor: [15, 30] 
+            iconSize: [40, 40],
+            iconAnchor: [20, 40] // Ancoraggio alla base in modo che "stiano in piedi" esattamente sul punto
         });
 
         L.marker([tappa.lat, tappa.lng], { icon: emojiIcon })
@@ -535,6 +575,7 @@ function resetRideStats() {
     state.lastAcceptedSpeed = 0;
     state.lastValidSpeedTime = null;
     state.lastBearing = null;
+    state.smoothedHeading = null;
     
     refreshStatDisplays(); 
     el.timer.textContent = '00:00:00';
@@ -545,14 +586,17 @@ function onPosition(position) {
     const currentLatLng = [coords.latitude, coords.longitude];
     let heading = typeof coords.heading === 'number' && !Number.isNaN(coords.heading) ? coords.heading : null;
     
+    // Ignoriamo ricalcoli di heading per spostamenti sotto i 5 metri
+    // per evitare i testacoda della freccia quando si va lenti
     if (heading === null && state.lastPosition) {
         const movedKm = haversineDistanceKm(state.lastPosition.latitude, state.lastPosition.longitude, coords.latitude, coords.longitude);
-        if (movedKm > 0.003) {
+        if (movedKm > 0.005) {
             heading = computeBearingDeg(state.lastPosition.latitude, state.lastPosition.longitude, coords.latitude, coords.longitude);
         }
     }
     
     if (heading !== null) { 
+        heading = getSmoothedHeading(heading);
         state.lastBearing = heading; 
         updateMarkerHeading(heading); 
     }
@@ -567,24 +611,18 @@ function onPosition(position) {
     el.accuracy.textContent = coords.accuracy.toFixed(0); 
     el.altitude.textContent = typeof coords.altitude === 'number' ? coords.altitude.toFixed(0) : '--';
     
-    // Calcolo della velocità attuale
     let speedKmh = typeof coords.speed === 'number' && coords.speed !== null 
         ? coords.speed * 3.6 
         : deriveSpeedFromFixes(coords, position.timestamp);
         
-    // --- FILTRO DI SMOOTHING (DEBOUNCE) PER LA VELOCITÀ ---
+    // Smoothing GPS drop signal
     if (speedKmh >= MIN_SPEED_THRESHOLD) {
-        // Velocità valida registrata normalmente
         state.lastAcceptedSpeed = speedKmh;
         state.lastValidSpeedTime = Date.now();
     } else {
-        // Se la velocità scende sotto soglia (0), controlliamo da quanto tempo
-        // Se è passato poco tempo dall'ultimo segnale valido (es. meno di 4 secondi)
-        // manteniamo a display l'ultima velocità per mascherare il calo del GPS
         if (state.lastValidSpeedTime && (Date.now() - state.lastValidSpeedTime < SPEED_DEBOUNCE_MS)) {
             speedKmh = state.lastAcceptedSpeed;
         } else {
-            // Effettivamente fermo da oltre 4 secondi
             speedKmh = 0;
             state.lastAcceptedSpeed = 0;
         }
