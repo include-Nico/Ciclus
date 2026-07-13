@@ -31,6 +31,7 @@ const state = {
     lastAcceptedSpeed: 0,
     lastValidSpeedTime: null, 
     lastBearing: null,      
+    compassHeading: null,     // Nuovo stato per la bussola reale
     smoothedHeading: null,    
 
     startTime: null,
@@ -136,6 +137,45 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* ==========================================================================
+   Gestione Bussola del Dispositivo (DeviceOrientation API)
+   ========================================================================== */
+function initCompass() {
+    // Richiesta permessi introdotta per iOS 13+
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+            .then(response => {
+                if (response === 'granted') {
+                    window.addEventListener('deviceorientation', handleOrientation, true);
+                }
+            })
+            .catch(console.error);
+    } else {
+        window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+        window.addEventListener('deviceorientation', handleOrientation, true);
+    }
+}
+
+function handleOrientation(event) {
+    let heading = null;
+    
+    if (event.webkitCompassHeading) {
+        heading = event.webkitCompassHeading;
+    } else if (event.alpha !== null && event.absolute) {
+        heading = 360 - event.alpha;
+    }
+    
+    if (heading !== null) {
+        state.compassHeading = heading;
+        
+        // Se siamo praticamente fermi, aggiorna l'HUD usando esclusivamente la bussola
+        if (state.tracking && state.lastAcceptedSpeed < 5) {
+            const smoothed = getSmoothedHeading(heading);
+            updateMarkerHeading(smoothed);
+        }
+    }
+}
+
+/* ==========================================================================
    Gestione Mappa e Prospettiva 3D
    ========================================================================== */
 function initMap() {
@@ -203,10 +243,12 @@ function updateMarkerHeading(headingDeg) {
 
     if (isFollowing) {
         el.perspectiveWrapper.style.perspective = '1200px';
+        
+        // La mappa ruota al contrario (-headingDeg) rispetto al Nord
         el.mapContainer.style.transform = `rotateX(55deg) translateY(5vh) rotateZ(${-headingDeg}deg)`;
         
-        // Risoluzione bug: applicando +headingDeg bilanciamo la rotazione negativa della mappa
-        // in questo modo la freccia punta *sempre* dritta davanti a noi sullo schermo!
+        // Affinché la freccia punti frontalmente a noi (Verso l'alto dello schermo)
+        // deve controruotare della stessa identica angolazione rispetto al container madre (+headingDeg).
         if (arrow) arrow.style.transform = `rotate(${headingDeg}deg)`;
         
         emojis.forEach(icon => {
@@ -216,6 +258,7 @@ function updateMarkerHeading(headingDeg) {
         el.perspectiveWrapper.style.perspective = 'none';
         el.mapContainer.style.transform = `rotateX(0deg) translateY(0) rotateZ(0deg)`;
         
+        // In modalità 2D classica, la mappa è fissa a nord (0deg), e la freccia ruota
         if (arrow) arrow.style.transform = `rotate(${headingDeg}deg)`;
         
         emojis.forEach(icon => {
@@ -493,6 +536,9 @@ function startTracking() {
         return; 
     }
     
+    // Inizializza o attiva i listener bussola ad inizio tracciamento
+    initCompass();
+    
     resetRideStats(); 
     requestWakeLock(); 
     state.tappeRaggiunteCorrenti = []; 
@@ -570,6 +616,7 @@ function resetRideStats() {
     state.lastAcceptedSpeed = 0;
     state.lastValidSpeedTime = null;
     state.lastBearing = null;
+    state.compassHeading = null;
     state.smoothedHeading = null;
     
     refreshStatDisplays(); 
@@ -596,28 +643,32 @@ function onPosition(position) {
         }
     }
 
-    let heading = typeof coords.heading === 'number' && !Number.isNaN(coords.heading) ? coords.heading : null;
+    // Direzione del vettore di movimento calcolata via GPS
+    let gpsHeading = typeof coords.heading === 'number' && !Number.isNaN(coords.heading) ? coords.heading : null;
     
-    // Ricalcoliamo il bearing dai fix di geolocalizzazione unicamente se 
-    // l'utente si sta spostando di un margine decente (> 2 km/h)
-    // altrimenti teniamo il vecchio angolo per non "far sgommare" la freccia da ferma.
-    if (heading === null && state.lastPosition && speedKmh > 2.0) {
+    let currentHeading = state.compassHeading; // Fallback di default sulla bussola
+
+    // Regola d'oro ibrida: se la velocità supera i 5 km/h ci fidiamo solo del GPS,
+    // altrimenti la bussola hardware è più reattiva e previene l'effetto retromarcia.
+    if (speedKmh >= 5 && gpsHeading !== null) {
+        currentHeading = gpsHeading;
+    } else if (currentHeading === null && state.lastPosition && speedKmh > 2.0) {
         const movedKm = haversineDistanceKm(state.lastPosition.latitude, state.lastPosition.longitude, coords.latitude, coords.longitude);
         if (movedKm > 0.002) {
-            heading = computeBearingDeg(state.lastPosition.latitude, state.lastPosition.longitude, coords.latitude, coords.longitude);
+            currentHeading = computeBearingDeg(state.lastPosition.latitude, state.lastPosition.longitude, coords.latitude, coords.longitude);
         }
     }
     
-    if (heading !== null) { 
-        heading = getSmoothedHeading(heading);
-        state.lastBearing = heading; 
+    if (currentHeading !== null) { 
+        currentHeading = getSmoothedHeading(currentHeading);
+        state.lastBearing = currentHeading; 
     } else if (state.lastBearing !== null) {
-        heading = state.lastBearing;
+        currentHeading = state.lastBearing;
     } else {
-        heading = 0;
+        currentHeading = 0;
     }
 
-    updateMarkerHeading(heading); 
+    updateMarkerHeading(currentHeading); 
     
     if (state.map && state.marker) { 
         state.map.panTo(currentLatLng, { animate: true, duration: 0.5 }); 
