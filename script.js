@@ -31,7 +31,7 @@ const state = {
     lastAcceptedSpeed: 0,
     lastValidSpeedTime: null, 
     lastBearing: null,      
-    compassHeading: null,     // Nuovo stato per la bussola reale
+    compassHeading: null,     
     smoothedHeading: null,    
 
     startTime: null,
@@ -140,7 +140,6 @@ document.addEventListener('DOMContentLoaded', () => {
    Gestione Bussola del Dispositivo (DeviceOrientation API)
    ========================================================================== */
 function initCompass() {
-    // Richiesta permessi introdotta per iOS 13+
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
         DeviceOrientationEvent.requestPermission()
             .then(response => {
@@ -167,7 +166,6 @@ function handleOrientation(event) {
     if (heading !== null) {
         state.compassHeading = heading;
         
-        // Se siamo praticamente fermi, aggiorna l'HUD usando esclusivamente la bussola
         if (state.tracking && state.lastAcceptedSpeed < 5) {
             const smoothed = getSmoothedHeading(heading);
             updateMarkerHeading(smoothed);
@@ -209,9 +207,13 @@ function updateMapThemeLayer() {
         state.map.removeLayer(state.tileLayer);
     }
     
-    const activeUrl = state.mapTheme === 'dark' 
-        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' 
-        : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+    const isLight = state.mapTheme === 'light';
+    const activeUrl = isLight 
+        ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png' 
+        : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+        
+    // Gestione del colore dell'orizzonte (Banda dietro la mappa)
+    document.body.classList.toggle('theme-light', isLight);
         
     state.tileLayer = L.tileLayer(activeUrl, { 
         maxZoom: 22, 
@@ -244,11 +246,8 @@ function updateMarkerHeading(headingDeg) {
     if (isFollowing) {
         el.perspectiveWrapper.style.perspective = '1200px';
         
-        // La mappa ruota al contrario (-headingDeg) rispetto al Nord
         el.mapContainer.style.transform = `rotateX(55deg) translateY(5vh) rotateZ(${-headingDeg}deg)`;
         
-        // Affinché la freccia punti frontalmente a noi (Verso l'alto dello schermo)
-        // deve controruotare della stessa identica angolazione rispetto al container madre (+headingDeg).
         if (arrow) arrow.style.transform = `rotate(${headingDeg}deg)`;
         
         emojis.forEach(icon => {
@@ -258,7 +257,6 @@ function updateMarkerHeading(headingDeg) {
         el.perspectiveWrapper.style.perspective = 'none';
         el.mapContainer.style.transform = `rotateX(0deg) translateY(0) rotateZ(0deg)`;
         
-        // In modalità 2D classica, la mappa è fissa a nord (0deg), e la freccia ruota
         if (arrow) arrow.style.transform = `rotate(${headingDeg}deg)`;
         
         emojis.forEach(icon => {
@@ -536,7 +534,6 @@ function startTracking() {
         return; 
     }
     
-    // Inizializza o attiva i listener bussola ad inizio tracciamento
     initCompass();
     
     resetRideStats(); 
@@ -643,13 +640,9 @@ function onPosition(position) {
         }
     }
 
-    // Direzione del vettore di movimento calcolata via GPS
     let gpsHeading = typeof coords.heading === 'number' && !Number.isNaN(coords.heading) ? coords.heading : null;
-    
-    let currentHeading = state.compassHeading; // Fallback di default sulla bussola
+    let currentHeading = state.compassHeading; 
 
-    // Regola d'oro ibrida: se la velocità supera i 5 km/h ci fidiamo solo del GPS,
-    // altrimenti la bussola hardware è più reattiva e previene l'effetto retromarcia.
     if (speedKmh >= 5 && gpsHeading !== null) {
         currentHeading = gpsHeading;
     } else if (currentHeading === null && state.lastPosition && speedKmh > 2.0) {

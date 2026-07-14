@@ -5,6 +5,7 @@
    ========================================================================== */
 :root {
     --void: #08090b;
+    --horizon-bg: #08090b; /* Variabile dinamica per l'orizzonte */
     --panel: #121317;
     --panel-glass: rgba(16, 18, 21, 0.72);
     --panel-raised: rgba(255, 255, 255, 0.05);
@@ -36,6 +37,11 @@
     --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
+/* Gestione Dinamica Tema Chiaro */
+body.theme-light {
+    --horizon-bg: #f4f4f5; /* Grigio chiarissimo per un blending perfetto con la mappa Voyager */
+}
+
 /* ==========================================================================
    Reset
    ========================================================================== */
@@ -51,7 +57,8 @@ html, body {
     height: 100%;
     width: 100%;
     overflow: hidden;
-    background-color: var(--void);
+    background-color: var(--horizon-bg);
+    transition: background-color 0.4s ease; /* Transizione morbida sul cambio tema */
     color: var(--text-primary);
     user-select: none;
     -webkit-user-select: none;
